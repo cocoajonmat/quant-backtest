@@ -491,6 +491,23 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current'):
                 elif current < ma5 and pos.sold_pct < 0.30:
                     signals.append(('MA5_BREAK', 0.30))
 
+        elif exit_mode == 'hybrid':
+            # 하이브리드: MA10 이탈 시 50% 청산 + MA20 3일 연속 이탈 시 잔여 전량 청산
+            if idx >= 23:
+                below_ma20_streak = all(
+                    close.iloc[idx - i] < close.iloc[idx - 20 - i:idx - i + 1].mean()
+                    for i in range(3)
+                )
+                if below_ma20_streak and pos.sold_pct >= 0.50:
+                    # MA20 3일 연속 이탈 → 잔여 전량 청산
+                    signals.append(('MA20_HYBRID_ALL', 1.0))
+                elif below_ma20_streak and pos.sold_pct < 0.50:
+                    # MA10도 안 팔렸는데 MA20 확인 → 바로 전량
+                    signals.append(('MA20_HYBRID_ALL', 1.0))
+                elif current < ma10 and pos.sold_pct < 0.50:
+                    # MA10 첫 이탈 → 50% 청산
+                    signals.append(('MA10_HYBRID_HALF', 0.50))
+
     return signals
 
 
@@ -546,7 +563,7 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
             sell_signals = check_sell_signals(df, idx, pos, stop_mode=stop_mode, exit_mode=exit_mode)
 
             for reason, ratio in sell_signals:
-                if reason in ('HARD_STOP', 'MACD_RSI_EXIT', 'MA20_BREAK'):
+                if reason in ('HARD_STOP', 'MACD_RSI_EXIT', 'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
                     portfolio.sell_all(ticker, price_snapshot[ticker], reason, date)
                     pending_tranches.pop(ticker, None)
                     break
@@ -806,7 +823,12 @@ if __name__ == "__main__":
     results = []
     spy_curve = None
 
-    for mode, label in [('current', '현재 (단계적)'), ('fast', 'A안 (MA10 즉시전량)'), ('confirm', 'B안 (MA20 3일확인)')]:
+    for mode, label in [
+        ('current', '현재 (단계적)'),
+        ('fast',    'A안 (MA10 즉시전량)'),
+        ('confirm', 'B안 (MA20 3일확인)'),
+        ('hybrid',  'C안 (하이브리드: MA10→50% + MA20확인→잔여전량)'),
+    ]:
         portfolio = PortfolioManager(CONFIG['initial_capital'])
         run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode=mode)
         metrics, ec, spy_crv = compute_metrics(portfolio, price_data)

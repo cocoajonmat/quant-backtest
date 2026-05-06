@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 실험 기록 규칙
+
+백테스트를 실행할 때마다 결과를 **CONTEXT.md의 실험 로그**에 누적 기록한다.
+새 대화에서 히스토리 파악이 필요하면 CONTEXT.md를 먼저 읽는다.
+
 ## 실행
 
 ```powershell
@@ -23,8 +28,14 @@ pip install yfinance pandas numpy matplotlib
 | 현재 (단계적 MA) | +150.0% | 24.6% | -15.9% | 1.16 |
 | A안 MA10 즉시전량 | +169.0% | 26.8% | -13.6% | 1.24 |
 | B안 MA20 3일확인 | +173.7% | 27.4% | -16.9% | 1.22 |
+| **C안 하이브리드 (현재 채택)** | **+188.4%** | **29.0%** | **-16.8%** | **1.27** |
 
-**다음 작업:** 하이브리드 청산 구현 — MA10 이탈 시 50% 청산 + MA20 3일 연속 이탈 시 잔여 전량 청산
+C안 하이브리드: MA10 이탈 시 50% 청산 → MA20 3일 연속 이탈 시 잔여 전량 청산. 4개 방식 중 수익률·CAGR·샤프 모두 최우수.
+
+**다음 작업:** 샤프 2.0+ 목표 — CONTEXT.md 실험 목록 순서대로 진행
+1. hybrid + bear_filter=block 실험 (실험 3)
+2. hybrid + block + stop_mode=atr 실험 (실험 4)
+3. 결과 비교 후 최종 전략 확정
 
 ## 코드 구조
 
@@ -56,7 +67,7 @@ compute_metrics() → plot_comparison()
 **run_backtest 파라미터**
 - `bear_filter`: `'none'` / `'block'`(SPY 200일선 아래 진입 차단) / `'strict'`(Strong만 허용)
 - `stop_mode`: `'pct8'` / `'pct12'` / `'atr'`
-- `exit_mode`: `'current'`(단계적) / `'fast'`(MA10 즉시전량) / `'confirm'`(MA20 3일확인)
+- `exit_mode`: `'current'`(단계적) / `'fast'`(MA10 즉시전량) / `'confirm'`(MA20 3일확인) / `'hybrid'`(MA10→50% + MA20 3일확인→잔여전량, **현재 최우수**)
 
 **팩터 점수 (기술적 60점 만점 → 100점 정규화)**
 - 52주 신고가 돌파 +20, MA 정배열 +15, MACD 골든크로스 +10, RSI 50~70 +10, 거래량 1.5배+ +5
