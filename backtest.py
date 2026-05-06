@@ -262,6 +262,7 @@ class Position:
         self.tranches = [{"shares": shares, "price": entry_price, "date": date, "tranche": 1}]
         self.next_tranche = 2
         self.sold_pct = 0.0  # 이미 매도한 비율
+        self.peak_price = entry_price  # 트레일링 스탑용 고점 추적
 
     def add_tranche(self, shares, price, date):
         total_cost = self.avg_price * self.shares + price * shares
@@ -304,19 +305,23 @@ class PortfolioManager:
     def current_total_equity(self, price_snapshot):
         return self.total_equity(price_snapshot)
 
-    def buy(self, ticker, price, signal_strength, date, tranche=1, price_snapshot=None):
+    def buy(self, ticker, price, signal_strength, date, tranche=1, price_snapshot=None, capital_override=None):
         # 현재 총자산 기준으로 포지션 크기 결정 (복리 반영)
         current_equity = self.total_equity(price_snapshot) if price_snapshot else self.cash
 
         if tranche == 1:
-            if signal_strength == 'strong':
-                target_capital = current_equity * CONFIG['strong_position_pct']
-                first_pct = 0.50
+            if capital_override is not None:
+                # ATR 사이징: 1차 진입금액을 외부에서 계산해 전달
+                target_capital = capital_override
+                capital_to_use = min(capital_override, self.cash * 0.95)
             else:
-                target_capital = current_equity * CONFIG['medium_position_pct']
-                first_pct = 0.40
-
-            capital_to_use = min(target_capital * first_pct, self.cash * 0.95)
+                if signal_strength == 'strong':
+                    target_capital = current_equity * CONFIG['strong_position_pct']
+                    first_pct = 0.50
+                else:
+                    target_capital = current_equity * CONFIG['medium_position_pct']
+                    first_pct = 0.40
+                capital_to_use = min(target_capital * first_pct, self.cash * 0.95)
             if capital_to_use < 100:
                 return False
 
@@ -412,7 +417,7 @@ def calc_atr(df, idx, period=14):
 
 
 # stop_mode: 'pct8' | 'pct12' | 'atr'
-def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current'):
+def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', trailing_stop=False):
     close = df['Close']
     current = close.iloc[idx]
     signals = []
@@ -432,6 +437,23 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current'):
 
     if triggered:
         return [('HARD_STOP', 1.0)]
+
+    # ── 트레일링 스탑 ──
+    # +10% 도달 시 손익분기 보호, +20% 이상 시 고점 -10% 추적, +40% 이상 시 고점 -15% 추적
+    if trailing_stop:
+        if current > pos.peak_price:
+            pos.peak_price = current
+        pnl = pos.pnl_pct(current)
+        if pnl >= 0.40:
+            trail_price = pos.peak_price * 0.85
+        elif pnl >= 0.20:
+            trail_price = pos.peak_price * 0.90
+        elif pnl >= 0.10:
+            trail_price = pos.avg_price  # 손익분기점
+        else:
+            trail_price = None
+        if trail_price is not None and current <= trail_price:
+            return [('TRAIL_STOP', 1.0)]
 
     # MACD 데드크로스 + RSI 50 하향
     if idx >= 35:
@@ -518,7 +540,7 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current'):
 #   'none'   — 필터 없음 (기존)
 #   'block'  — SPY 200일선 아래면 신규 진입 완전 차단
 #   'strict' — SPY 200일선 아래면 Strong(70점+) 신호만 진입 허용
-def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current'):
+def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, trailing_stop=False):
     benchmark_df = price_data[BENCHMARK]
 
     # 공통 거래일 인덱스 생성
@@ -560,10 +582,10 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
             df = price_data[ticker]
             idx = df.index.get_loc(date)
             pos = portfolio.positions[ticker]
-            sell_signals = check_sell_signals(df, idx, pos, stop_mode=stop_mode, exit_mode=exit_mode)
+            sell_signals = check_sell_signals(df, idx, pos, stop_mode=stop_mode, exit_mode=exit_mode, trailing_stop=trailing_stop)
 
             for reason, ratio in sell_signals:
-                if reason in ('HARD_STOP', 'MACD_RSI_EXIT', 'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
+                if reason in ('HARD_STOP', 'TRAIL_STOP', 'MACD_RSI_EXIT', 'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
                     portfolio.sell_all(ticker, price_snapshot[ticker], reason, date)
                     pending_tranches.pop(ticker, None)
                     break
@@ -613,7 +635,18 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
                         pending_tranches.pop(ticker, None)
 
         # ── 신규 진입 ──
-        if portfolio.position_count() < CONFIG['max_positions']:
+        # Portfolio Heat Cap: 기존 포지션 미실현 손실 합계가 총자산의 -15% 초과 시 진입 차단
+        heat_ok = True
+        if heat_cap and portfolio.positions:
+            total_eq = portfolio.total_equity(price_snapshot)
+            total_unrealized_pct = sum(
+                pos_p.pnl_pct(price_snapshot[t]) * (pos_p.current_value(price_snapshot[t]) / total_eq)
+                for t, pos_p in portfolio.positions.items()
+                if price_snapshot.get(t)
+            )
+            heat_ok = total_unrealized_pct >= -0.15
+
+        if heat_ok and portfolio.position_count() < CONFIG['max_positions']:
             for ticker in current_universe:
                 if ticker in portfolio.positions:
                     continue
@@ -646,7 +679,19 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
                 if entry_price is None:
                     continue
 
-                success = portfolio.buy(ticker, entry_price, strength, date, tranche=1, price_snapshot=price_snapshot)
+                # ATR 기반 포지션 사이징: 1트랜치에서 포트폴리오의 1%를 리스크로 설정
+                cap_override = None
+                if atr_sizing and idx >= 15:
+                    atr = calc_atr(df, idx)
+                    stop_dist_pct = (atr * 2.5) / entry_price
+                    if stop_dist_pct > 0:
+                        current_eq = portfolio.total_equity(price_snapshot)
+                        cap_override = (current_eq * atr_risk_pct) / stop_dist_pct
+                        # 최소 $200, 최대 총자산의 40% 캡
+                        cap_override = max(200, min(cap_override, current_eq * 0.40))
+
+                success = portfolio.buy(ticker, entry_price, strength, date, tranche=1,
+                                        price_snapshot=price_snapshot, capital_override=cap_override)
                 if success:
                     pending_tranches[ticker] = {
                         "tranche": 2,
@@ -741,12 +786,12 @@ def print_metrics(metrics):
     print("=" * 55)
 
 
-def plot_comparison(results, spy_curve):
+def plot_comparison(results, spy_curve, title="백테스트 비교 — 슈퍼사이클 종목 (5Y)"):
     """results: [{"label": str, "ec": df, "metrics": dict, "trades": list}]"""
     fig, axes = plt.subplots(3, 1, figsize=(15, 13))
-    fig.suptitle("MA 청산 방식 비교 — 슈퍼사이클 종목 (5Y)", fontsize=14, fontweight='bold')
+    fig.suptitle(title, fontsize=14, fontweight='bold')
 
-    colors = ['steelblue', 'seagreen', 'darkorange']
+    colors = ['steelblue', 'seagreen', 'darkorange', 'mediumpurple', 'crimson', 'teal', 'goldenrod']
 
     # ── 1) 수익률 곡선 ──
     ax1 = axes[0]
@@ -823,18 +868,24 @@ if __name__ == "__main__":
     results = []
     spy_curve = None
 
-    for mode, label in [
-        ('current', '현재 (단계적)'),
-        ('fast',    'A안 (MA10 즉시전량)'),
-        ('confirm', 'B안 (MA20 3일확인)'),
-        ('hybrid',  'C안 (하이브리드: MA10→50% + MA20확인→잔여전량)'),
-    ]:
+    # 실험 9: ATR 리스크% 스윕 (트레일링 스탑 고정) — 최적 배팅 크기 탐색
+    scenarios = [
+        (False, 0.0,   '기준: 고정비율 + 트레일링'),
+        (True,  0.025, 'ATR 2.5%'),
+        (True,  0.030, 'ATR 3.0%'),
+        (True,  0.035, 'ATR 3.5%'),
+        (True,  0.040, 'ATR 4.0%'),
+        (True,  0.045, 'ATR 4.5%'),
+        (True,  0.050, 'ATR 5.0%'),
+    ]
+    for atr_s, risk_pct, label in scenarios:
         portfolio = PortfolioManager(CONFIG['initial_capital'])
-        run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode=mode)
+        run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='hybrid',
+                     atr_sizing=atr_s, atr_risk_pct=risk_pct, trailing_stop=True)
         metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    plot_comparison(results, spy_curve)
+    plot_comparison(results, spy_curve, title="실험9: ATR 리스크% 스윕 + 트레일링 스탑 — 5Y")
