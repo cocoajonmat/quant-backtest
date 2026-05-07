@@ -39,7 +39,11 @@ pip install yfinance pandas numpy matplotlib
 
 ## 코드 구조
 
-`backtest.py` 단일 파일로 구성. 실행 흐름:
+`backtest.py` — 멀티 종목 백테스트 메인 파일  
+`backtest_single.py` — 단일 종목(현재 MU) 트레이딩 시각화. 매수/매도 시점을 차트에 표시하고 멀티 실험10과 비교  
+`_run_multi.py` — `backtest_single.py`가 subprocess로 호출하는 멀티 백테스트 격리 실행 스크립트 (같은 프로세스에서 yfinance 이중 호출 시 결과가 달라지는 버그 방지)
+
+`backtest.py` 실행 흐름:
 
 ```
 load_data()
@@ -88,3 +92,4 @@ compute_metrics() → plot_comparison()
 - **RSI 계산**: 표준 Wilder's smoothing 대신 단순 평균 사용 (값이 표준과 다소 다름)
 - **한글 폰트**: Windows 맑은 고딕 고정 (`plt.rcParams['font.family'] = 'Malgun Gothic'`). macOS/Linux에서는 다른 폰트로 변경 필요
 - **MA 청산 sold_pct 추적**: `pos.sold_pct`는 `PortfolioManager.sell_partial()` 호출 후 루프에서 수동 누적. 청산 단계가 중복 발동되지 않도록 `elif` 체인으로 하루 1단계만 실행
+- **yfinance 이중 호출 버그**: 같은 Python 프로세스 내에서 `backtest` 모듈을 import한 뒤 yfinance를 다시 호출하면 내부 세션 상태가 달라져 결과가 달라짐 (590%→470%). `backtest_single.py`에서 멀티 백테스트를 `_run_multi.py` subprocess로 격리해서 해결. **`backtest` 모듈을 import하는 스크립트에서 별도로 yfinance를 재호출하면 안 됨**
