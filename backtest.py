@@ -38,6 +38,16 @@ LEGACY_TICKERS = [
 
 BENCHMARK = "SPY"
 
+# 섹터 ETF 매핑 (종목 → 대표 섹터 ETF)
+SECTOR_ETF_MAP = {
+    "NVDA": "XLK", "PLTR": "XLK", "ANET": "XLK", "MRVL": "XLK", "AVGO": "XLK",
+    "MU":   "XLK", "WDC":  "XLK",
+    "CEG":  "XLU", "VST":  "XLU", "NRG":  "XLU",
+    "AXON": "XLI", "HWM":  "XLI", "KTOS": "XLI", "RKLB": "XLI",
+    "HOOD": "XLF", "COIN": "XLF",
+}
+SECTOR_ETFS = list(set(SECTOR_ETF_MAP.values()))  # ["XLK", "XLU", "XLI", "XLF"]
+
 
 def get_nasdaq100_tickers():
     """나스닥100 구성종목 반환 (2025년 기준 하드코딩 — 분기별 수동 업데이트)."""
@@ -74,7 +84,7 @@ def load_data(tickers, period_years=5):
     start = end - timedelta(days=period_years * 365 + 60)
 
     # CSV 캐시 확인 — 있으면 로드, 없는 종목만 yfinance 다운로드
-    all_tickers = list(dict.fromkeys(tickers + [BENCHMARK]))
+    all_tickers = list(dict.fromkeys(tickers + SECTOR_ETFS + [BENCHMARK]))
     cached, to_download = {}, []
     for ticker in all_tickers:
         csv_path = os.path.join(DATA_DIR, f"{ticker}.csv")
@@ -110,11 +120,45 @@ def load_data(tickers, period_years=5):
 # ─────────────────────────────────────────────
 # 2. 유니버스 선정 (모멘텀 필터)
 # ─────────────────────────────────────────────
-def get_universe(price_data, date):
+def _sector_etf_ok(ticker, price_data, date, sector_filter):
+    """섹터 ETF 모멘텀 필터 판단.
+    sector_filter:
+      'none'     — 필터 없음
+      'absolute' — 섹터 ETF 3개월 수익률 > 0
+      'relative' — 섹터 ETF 3개월 수익률 > SPY 3개월 수익률
+    """
+    if sector_filter == 'none':
+        return True
+    etf = SECTOR_ETF_MAP.get(ticker)
+    if etf is None or etf not in price_data:
+        return True  # 매핑 없으면 통과
+    etf_df = price_data[etf]
+    if date not in etf_df.index:
+        return True
+    idx = etf_df.index.get_loc(date)
+    if idx < 63:
+        return True
+    etf_ret = etf_df['Close'].iloc[idx] / etf_df['Close'].iloc[idx - 63] - 1
+    if sector_filter == 'absolute':
+        return etf_ret > 0
+    # relative: SPY 3개월 수익률과 비교
+    spy_df = price_data.get(BENCHMARK)
+    if spy_df is None or date not in spy_df.index:
+        return True
+    spy_idx = spy_df.index.get_loc(date)
+    if spy_idx < 63:
+        return True
+    spy_ret = spy_df['Close'].iloc[spy_idx] / spy_df['Close'].iloc[spy_idx - 63] - 1
+    return etf_ret > spy_ret
+
+
+def get_universe(price_data, date, sector_filter='none'):
     candidates = []
 
     for ticker, df in price_data.items():
         if ticker == BENCHMARK:
+            continue
+        if ticker in SECTOR_ETFS:
             continue
         if date not in df.index:
             continue
@@ -144,6 +188,10 @@ def get_universe(price_data, date):
         # 일평균 거래대금 $50M 이상
         avg_dollar_vol = (close.iloc[idx - 20:idx] * volume.iloc[idx - 20:idx]).mean()
         if avg_dollar_vol < 50_000_000:
+            continue
+
+        # 섹터 ETF 모멘텀 필터
+        if not _sector_etf_ok(ticker, price_data, date, sector_filter):
             continue
 
         candidates.append({"ticker": ticker, "ret_3m": ret_3m})
@@ -439,6 +487,44 @@ def calc_atr(df, idx, period=14):
     return tr.mean()
 
 
+def calc_adx(df, idx, period=14):
+    """Wilder's ADX (0~100). pandas EWM alpha=1/period 방식."""
+    need = period * 3
+    if idx < need:
+        return 0
+    alpha = 1.0 / period
+    high  = df['High'].iloc[idx - need:idx + 1]
+    low   = df['Low'].iloc[idx - need:idx + 1]
+    close = df['Close'].iloc[idx - need:idx + 1]
+
+    up   = high.diff()
+    down = -low.diff()
+    plus_dm  = np.where((up > down) & (up > 0), up, 0.0)[1:]
+    minus_dm = np.where((down > up) & (down > 0), down, 0.0)[1:]
+    tr_arr = pd.concat([
+        high.diff().abs(),
+        (high - close.shift()).abs(),
+        (low  - close.shift()).abs(),
+    ], axis=1).max(axis=1).iloc[1:].values
+
+    # Wilder smoothing: EWM with adjust=False, alpha=1/period
+    def ws(arr):
+        s = pd.Series(arr).ewm(alpha=alpha, adjust=False).mean().values
+        return s
+
+    atr_s  = ws(tr_arr)
+    pdm_s  = ws(plus_dm)
+    mdm_s  = ws(minus_dm)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        pdi = np.where(atr_s > 0, 100 * pdm_s / atr_s, 0.0)
+        mdi = np.where(atr_s > 0, 100 * mdm_s / atr_s, 0.0)
+        dx  = np.where((pdi + mdi) > 0, 100 * np.abs(pdi - mdi) / (pdi + mdi), 0.0)
+
+    adx = pd.Series(dx).ewm(alpha=alpha, adjust=False).mean().iloc[-1]
+    return float(np.clip(adx, 0, 100))
+
+
 # stop_mode: 'pct8' | 'pct12' | 'atr'
 def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', trailing_stop=False):
     close = df['Close']
@@ -462,19 +548,64 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
         return [('HARD_STOP', 1.0)]
 
     # ── 트레일링 스탑 ──
-    # +10% 도달 시 손익분기 보호, +20% 이상 시 고점 -10% 추적, +40% 이상 시 고점 -15% 추적
+    # trailing_stop: False | 'original' | 'A' | 'B' | 'C'
+    #   original : +10%→BEP / +20%→고점-10% / +40%→고점-15%
+    #   A        : +10%→BEP / +20%→고점-12% / +40%→고점-18%                  (쿠션 소폭 확대)
+    #   B        : +10%→BEP / +20%→고점-10% / +40%→고점-15% / +100%→고점-20% / +200%→고점-25%  (고구간 추가)
+    #   C        : +10%→BEP / +20%→고점-12% / +40%→고점-18% / +100%→고점-20% / +200%→고점-25%  (A+B 조합)
     if trailing_stop:
         if current > pos.peak_price:
             pos.peak_price = current
         pnl = pos.pnl_pct(current)
-        if pnl >= 0.40:
-            trail_price = pos.peak_price * 0.85
-        elif pnl >= 0.20:
-            trail_price = pos.peak_price * 0.90
-        elif pnl >= 0.10:
-            trail_price = pos.avg_price  # 손익분기점
+        mode = trailing_stop  # 'original' | 'A' | 'B' | 'C'
+
+        if mode == 'original':
+            if pnl >= 0.40:
+                trail_price = pos.peak_price * 0.85
+            elif pnl >= 0.20:
+                trail_price = pos.peak_price * 0.90
+            elif pnl >= 0.10:
+                trail_price = pos.avg_price
+            else:
+                trail_price = None
+        elif mode == 'A':
+            if pnl >= 0.40:
+                trail_price = pos.peak_price * 0.82
+            elif pnl >= 0.20:
+                trail_price = pos.peak_price * 0.88
+            elif pnl >= 0.10:
+                trail_price = pos.avg_price
+            else:
+                trail_price = None
+        elif mode == 'B':
+            if pnl >= 2.00:
+                trail_price = pos.peak_price * 0.75
+            elif pnl >= 1.00:
+                trail_price = pos.peak_price * 0.80
+            elif pnl >= 0.40:
+                trail_price = pos.peak_price * 0.85
+            elif pnl >= 0.20:
+                trail_price = pos.peak_price * 0.90
+            elif pnl >= 0.10:
+                trail_price = pos.avg_price
+            else:
+                trail_price = None
+        elif mode == 'C':
+            if pnl >= 2.00:
+                trail_price = pos.peak_price * 0.75
+            elif pnl >= 1.00:
+                trail_price = pos.peak_price * 0.80
+            elif pnl >= 0.40:
+                trail_price = pos.peak_price * 0.82
+            elif pnl >= 0.20:
+                trail_price = pos.peak_price * 0.88
+            elif pnl >= 0.10:
+                trail_price = pos.avg_price
+            else:
+                trail_price = None
         else:
             trail_price = None
+
         if trail_price is not None and current <= trail_price:
             return [('TRAIL_STOP', 1.0)]
 
@@ -563,7 +694,7 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
 #   'none'   — 필터 없음 (기존)
 #   'block'  — SPY 200일선 아래면 신규 진입 완전 차단
 #   'strict' — SPY 200일선 아래면 Strong(70점+) 신호만 진입 허용
-def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, trailing_stop=False, spy_ma_period=200):
+def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, atr_position_cap=0.40, trailing_stop=False, spy_ma_period=200, sector_filter='none', adx_threshold=0):
     benchmark_df = price_data[BENCHMARK]
 
     # 공통 거래일 인덱스 생성
@@ -595,7 +726,7 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
 
         # ── 유니버스 업데이트 (월 1회) ──
         if last_universe_update is None or (date - last_universe_update).days >= 21:
-            current_universe = get_universe(price_data, date)
+            current_universe = get_universe(price_data, date, sector_filter=sector_filter)
             last_universe_update = date
 
         # ── 기존 포지션 매도 판단 ──
@@ -698,6 +829,11 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
                 if bear_filter == 'block' and not spy_above_ma200:
                     continue
 
+                # ADX 추세 강도 필터 (adx_threshold=0이면 비활성)
+                if adx_threshold > 0 and idx >= 28:
+                    if calc_adx(df, idx) < adx_threshold:
+                        continue
+
                 entry_price = price_snapshot.get(ticker)
                 if entry_price is None:
                     continue
@@ -710,8 +846,8 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
                     if stop_dist_pct > 0:
                         current_eq = portfolio.total_equity(price_snapshot)
                         cap_override = (current_eq * atr_risk_pct) / stop_dist_pct
-                        # 최소 $200, 최대 총자산의 40% 캡
-                        cap_override = max(200, min(cap_override, current_eq * 0.40))
+                        # 최소 $200, 최대 총자산의 atr_position_cap 캡
+                        cap_override = max(200, min(cap_override, current_eq * atr_position_cap))
 
                 success = portfolio.buy(ticker, entry_price, strength, date, tranche=1,
                                         price_snapshot=price_snapshot, capital_override=cap_override)
@@ -982,27 +1118,25 @@ def analyze_ticker_pnl(trade_log, price_data, initial_capital):
 # 실행
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # 실험10 재현: 단 한 번만 다운로드 후 4개 시나리오 비교 (당시 방식 그대로)
+    # 실험19: ADX 추세 강도 필터 스윕 (0=비활성 / 20 / 25 / 30)
+    # 횡보 구간에서 ANET/AVGO 같은 저추세 종목 진입을 진입 시점에 차단
+    # 채택 파라미터 고정: bear=block MA200 / pct12 / hybrid / ATR 4% / 캡40% / trailing=original / max_positions=4
     price_data = load_data(LEGACY_TICKERS, 5)
+    CONFIG['max_positions'] = 4
 
     results = []
     spy_curve = None
-    CONFIG['max_positions'] = 3
 
-    scenarios = [
-        ('none',  200, 'bear=none (기준)'),
-        ('block', 200, 'block SPY MA200'),
-        ('block', 100, 'block SPY MA100'),
-        ('block',  50, 'block SPY MA50'),
-    ]
-    for bear, ma_period, label in scenarios:
+    for adx in [0, 20, 25, 30]:
+        label = f"ADX 없음 (기준)" if adx == 0 else f"ADX {adx}+"
         portfolio = PortfolioManager(CONFIG['initial_capital'])
-        run_backtest(price_data, portfolio, bear_filter=bear, stop_mode='pct12', exit_mode='hybrid',
-                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=ma_period)
+        run_backtest(price_data, portfolio, bear_filter='block', stop_mode='pct12', exit_mode='hybrid',
+                     atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
+                     trailing_stop='original', spy_ma_period=200, adx_threshold=adx)
         metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    plot_comparison(results, spy_curve, title="실험10: SPY MA 기준선 비교 (ATR4% + 트레일링) - 5Y")
+    plot_comparison(results, spy_curve, title="실험19: ADX 추세 강도 필터 스윕 (max_positions=4) - 5Y")
