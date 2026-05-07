@@ -50,11 +50,6 @@ UNIVERSE_TICKERS = [
     "KTOS",   # ~5배 (드론/무기)
     "RKLB",   # ~6배 (로켓랩, 우주)
 
-    # 비만치료 / 바이오 슈퍼사이클
-    "LLY",    # ~6배 (일라이릴리, 위고비)
-    "NVO",    # ~5배 (노보노디스크)
-    "HIMS",   # ~8배 (힘스앤허스)
-
     # 핀테크 / 암호화폐
     "HOOD",   # ~6배 (로빈후드)
     "COIN",   # ~5배 (코인베이스)
@@ -540,7 +535,7 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
 #   'none'   — 필터 없음 (기존)
 #   'block'  — SPY 200일선 아래면 신규 진입 완전 차단
 #   'strict' — SPY 200일선 아래면 Strong(70점+) 신호만 진입 허용
-def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, trailing_stop=False):
+def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, trailing_stop=False, spy_ma_period=200):
     benchmark_df = price_data[BENCHMARK]
 
     # 공통 거래일 인덱스 생성
@@ -549,7 +544,7 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
 
     pending_tranches = {}
 
-    print(f"\n[bear_filter={bear_filter}] 백테스팅 시작: {trading_days[0].date()} ~ {trading_days[-1].date()}")
+    print(f"\n[bear_filter={bear_filter}, SPY MA{spy_ma_period}] 백테스팅 시작: {trading_days[0].date()} ~ {trading_days[-1].date()}")
     print(f"초기 자본: ${portfolio.initial_capital:,.0f}")
     print("-" * 50)
 
@@ -562,13 +557,13 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
             if date in df.index:
                 price_snapshot[ticker] = df.loc[date, 'Close']
 
-        # ── SPY 200일선 상태 판단 ──
+        # ── SPY MA 상태 판단 ──
         spy_above_ma200 = True
         if bear_filter != 'none':
             spy_idx = benchmark_df.index.get_loc(date)
-            if spy_idx >= 200:
-                spy_ma200 = benchmark_df['Close'].iloc[spy_idx - 200:spy_idx].mean()
-                spy_above_ma200 = benchmark_df['Close'].iloc[spy_idx] >= spy_ma200
+            if spy_idx >= spy_ma_period:
+                spy_ma = benchmark_df['Close'].iloc[spy_idx - spy_ma_period:spy_idx].mean()
+                spy_above_ma200 = benchmark_df['Close'].iloc[spy_idx] >= spy_ma
 
         # ── 유니버스 업데이트 (월 1회) ──
         if last_universe_update is None or (date - last_universe_update).days >= 21:
@@ -860,6 +855,102 @@ def plot_comparison(results, spy_curve, title="백테스트 비교 — 슈퍼사
 
 
 # ─────────────────────────────────────────────
+# 9. 종목별 PnL 분해
+# ─────────────────────────────────────────────
+def analyze_ticker_pnl(trade_log, price_data, initial_capital):
+    trades = pd.DataFrame(trade_log)
+    if trades.empty:
+        return
+
+    buy_trades  = trades[trades['action'].str.startswith('BUY')].copy()
+    sell_trades = trades[trades['action'].str.startswith('SELL')].copy()
+
+    stats = {}
+    for ticker in UNIVERSE_TICKERS:
+        buys  = buy_trades[buy_trades['ticker'] == ticker]
+        sells = sell_trades[sell_trades['ticker'] == ticker]
+
+        invested = (buys['price'] * buys['shares']).sum() * (1 + CONFIG['slippage_cost'])
+        proceeds = (sells['price'] * sells['shares']).sum() * (1 - CONFIG['slippage_cost'])
+
+        # 백테스트 종료 시점에 미청산 포지션이 남아있으면 마지막 가격으로 평가
+        remaining_shares = buys['shares'].sum() - sells['shares'].sum()
+        if remaining_shares > 1 and ticker in price_data:
+            last_price = price_data[ticker]['Close'].iloc[-1]
+            proceeds += remaining_shares * last_price * (1 - CONFIG['slippage_cost'])
+            open_pos = True
+        else:
+            open_pos = False
+
+        pnl_dollar = proceeds - invested
+        pnl_pct    = pnl_dollar / invested * 100 if invested > 0 else 0
+        contrib    = pnl_dollar / initial_capital * 100  # 전체 수익률 기여도
+
+        n_entries  = len(buys[buys['action'] == 'BUY_T1'])
+        n_wins     = len(sells[sells['pnl_pct'] > 0]) if 'pnl_pct' in sells.columns else 0
+        n_sells    = len(sells)
+        win_rate   = n_wins / n_sells * 100 if n_sells > 0 else 0
+
+        stats[ticker] = {
+            'invested':     invested,
+            'pnl_dollar':   pnl_dollar,
+            'pnl_pct':      pnl_pct,
+            'contrib_pct':  contrib,
+            'n_entries':    n_entries,
+            'n_sells':      n_sells,
+            'win_rate':     win_rate,
+            'open_pos':     open_pos,
+        }
+
+    df = pd.DataFrame(stats).T
+    df = df[df['n_entries'] > 0].sort_values('contrib_pct', ascending=False)
+
+    print("\n" + "=" * 75)
+    print("  종목별 PnL 기여도 분석")
+    print("=" * 75)
+    print(f"  {'종목':<6}  {'기여도':>8}  {'PnL($)':>9}  {'수익률':>7}  {'진입':>4}  {'청산':>4}  {'승률':>6}  {'미결'}")
+    print("  " + "-" * 70)
+    for ticker, r in df.iterrows():
+        flag = " ★" if r['open_pos'] else ""
+        print(f"  {ticker:<6}  {r['contrib_pct']:>+7.1f}%  {r['pnl_dollar']:>+9,.0f}  "
+              f"{r['pnl_pct']:>+6.1f}%  {int(r['n_entries']):>4}  {int(r['n_sells']):>4}  "
+              f"{r['win_rate']:>5.0f}%{flag}")
+    print("  " + "-" * 70)
+    total_contrib = df['contrib_pct'].sum()
+    total_pnl     = df['pnl_dollar'].sum()
+    print(f"  {'합계':<6}  {total_contrib:>+7.1f}%  {total_pnl:>+9,.0f}")
+    print("=" * 75)
+
+    # 차트: 기여도 막대그래프
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle("종목별 PnL 기여도 분석", fontsize=13, fontweight='bold')
+
+    colors_bar = ['seagreen' if v >= 0 else 'crimson' for v in df['contrib_pct']]
+    axes[0].barh(df.index[::-1], df['contrib_pct'][::-1], color=colors_bar[::-1])
+    axes[0].axvline(0, color='black', linewidth=0.8)
+    axes[0].set_xlabel("전체 수익률 기여도 (%p)")
+    axes[0].set_title("종목별 기여도 (%p)")
+    axes[0].grid(True, axis='x', alpha=0.3)
+    for i, (ticker, row) in enumerate(df[::-1].iterrows()):
+        axes[0].text(row['contrib_pct'] + (0.3 if row['contrib_pct'] >= 0 else -0.3),
+                     i, f"{row['contrib_pct']:+.1f}%", va='center',
+                     ha='left' if row['contrib_pct'] >= 0 else 'right', fontsize=8)
+
+    axes[1].barh(df.index[::-1], df['pnl_dollar'][::-1],
+                 color=['seagreen' if v >= 0 else 'crimson' for v in df['pnl_dollar'][::-1]])
+    axes[1].axvline(0, color='black', linewidth=0.8)
+    axes[1].set_xlabel("PnL ($)")
+    axes[1].set_title("종목별 절대 수익 ($)")
+    axes[1].grid(True, axis='x', alpha=0.3)
+    axes[1].xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+
+    plt.tight_layout()
+    plt.savefig("ticker_pnl.png", dpi=150, bbox_inches='tight')
+    print("  차트 저장: ticker_pnl.png")
+    plt.show()
+
+
+# ─────────────────────────────────────────────
 # 실행
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
@@ -868,24 +959,21 @@ if __name__ == "__main__":
     results = []
     spy_curve = None
 
-    # 실험 9: ATR 리스크% 스윕 (트레일링 스탑 고정) — 최적 배팅 크기 탐색
+    # 실험 10: SPY MA 기간 비교 — none / MA200 / MA100 / MA50 (ATR 4% + 트레일링 고정)
     scenarios = [
-        (False, 0.0,   '기준: 고정비율 + 트레일링'),
-        (True,  0.025, 'ATR 2.5%'),
-        (True,  0.030, 'ATR 3.0%'),
-        (True,  0.035, 'ATR 3.5%'),
-        (True,  0.040, 'ATR 4.0%'),
-        (True,  0.045, 'ATR 4.5%'),
-        (True,  0.050, 'ATR 5.0%'),
+        ('none',  200, 'bear=none (기준)'),
+        ('block', 200, 'block SPY MA200'),
+        ('block', 100, 'block SPY MA100'),
+        ('block',  50, 'block SPY MA50'),
     ]
-    for atr_s, risk_pct, label in scenarios:
+    for bear, ma_period, label in scenarios:
         portfolio = PortfolioManager(CONFIG['initial_capital'])
-        run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='hybrid',
-                     atr_sizing=atr_s, atr_risk_pct=risk_pct, trailing_stop=True)
+        run_backtest(price_data, portfolio, bear_filter=bear, stop_mode='pct12', exit_mode='hybrid',
+                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=ma_period)
         metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    plot_comparison(results, spy_curve, title="실험9: ATR 리스크% 스윕 + 트레일링 스탑 — 5Y")
+    plot_comparison(results, spy_curve, title="실험10: SPY MA 기준선 비교 (ATR4% + 트레일링) — 5Y")
