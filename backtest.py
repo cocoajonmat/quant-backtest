@@ -694,7 +694,7 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
 #   'none'   — 필터 없음 (기존)
 #   'block'  — SPY 200일선 아래면 신규 진입 완전 차단
 #   'strict' — SPY 200일선 아래면 Strong(70점+) 신호만 진입 허용
-def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, atr_position_cap=0.40, trailing_stop=False, spy_ma_period=200, sector_filter='none', adx_threshold=0):
+def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', exit_mode='current', heat_cap=False, atr_sizing=False, atr_risk_pct=0.025, atr_position_cap=0.40, trailing_stop=False, spy_ma_period=200, sector_filter='none', adx_threshold=0, min_hold_days=0):
     benchmark_df = price_data[BENCHMARK]
 
     # 공통 거래일 인덱스 생성
@@ -736,7 +736,13 @@ def run_backtest(price_data, portfolio, bear_filter='none', stop_mode='pct12', e
             df = price_data[ticker]
             idx = df.index.get_loc(date)
             pos = portfolio.positions[ticker]
+
+            # 최소 보유 기간 미달 시 하드스탑/트레일링 외 청산 신호 무시
+            hold_days = (date - pos.entry_date).days if min_hold_days > 0 else 0
+
             sell_signals = check_sell_signals(df, idx, pos, stop_mode=stop_mode, exit_mode=exit_mode, trailing_stop=trailing_stop)
+            if min_hold_days > 0 and hold_days < min_hold_days:
+                sell_signals = [(r, ratio) for r, ratio in sell_signals if r in ('HARD_STOP', 'TRAIL_STOP')]
 
             for reason, ratio in sell_signals:
                 if reason in ('HARD_STOP', 'TRAIL_STOP', 'MACD_RSI_EXIT', 'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
@@ -1118,25 +1124,25 @@ def analyze_ticker_pnl(trade_log, price_data, initial_capital):
 # 실행
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # 실험19: ADX 추세 강도 필터 스윕 (0=비활성 / 20 / 25 / 30)
-    # 횡보 구간에서 ANET/AVGO 같은 저추세 종목 진입을 진입 시점에 차단
-    # 채택 파라미터 고정: bear=block MA200 / pct12 / hybrid / ATR 4% / 캡40% / trailing=original / max_positions=4
+    # 실험21: 최소 보유 기간 스윕 (0/5/10/15일)
+    # 진입 후 N 거래일 이내에는 하드스탑/트레일링 외 청산 신호 무시
+    # 채택 파라미터 고정: bear=block MA200 / pct12 / hybrid / ATR 4% / 캡40% / trailing=original / max_positions=4 / ADX 20+
     price_data = load_data(LEGACY_TICKERS, 5)
     CONFIG['max_positions'] = 4
 
     results = []
     spy_curve = None
 
-    for adx in [0, 20, 25, 30]:
-        label = f"ADX 없음 (기준)" if adx == 0 else f"ADX {adx}+"
+    for hold in [0, 3, 5, 10, 15]:
+        label = f"기준 (hold=0)" if hold == 0 else f"min_hold={hold}일"
         portfolio = PortfolioManager(CONFIG['initial_capital'])
         run_backtest(price_data, portfolio, bear_filter='block', stop_mode='pct12', exit_mode='hybrid',
                      atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
-                     trailing_stop='original', spy_ma_period=200, adx_threshold=adx)
+                     trailing_stop='original', spy_ma_period=200, adx_threshold=20, min_hold_days=hold)
         metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    plot_comparison(results, spy_curve, title="실험19: ADX 추세 강도 필터 스윕 (max_positions=4) - 5Y")
+    plot_comparison(results, spy_curve, title="실험21: 최소 보유 기간 스윕 (0/5/10/15일) - 5Y")
