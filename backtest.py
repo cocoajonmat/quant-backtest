@@ -26,36 +26,40 @@ CONFIG = {
     "hard_stop_pct": -0.15,        # -15% 하드 스탑
 }
 
-# 백테스트 대상 종목 (S&P500/NASDAQ100 풀 대신 대표 유동성 종목 사용)
-UNIVERSE_TICKERS = [
-    # AI / 데이터 인프라 (5~20배)
-    "NVDA",   # ~25배
-    "PLTR",   # ~7배
-    "ANET",   # ~6배 (AI 네트워킹)
-    "MRVL",   # ~5배 (AI 칩 설계)
-    "AVGO",   # ~6배 (브로드컴)
-
-    # 메모리 / 스토리지 (AI 수요)
-    "MU",     # ~5배 (마이크론)
-    "WDC",    # ~4배 (샌디스크/웨스턴디지털)
-
-    # 원자력 / 전력 (AI 전력 슈퍼사이클)
-    "CEG",    # ~10배 (컨스텔레이션 에너지)
-    "VST",    # ~8배 (비스트라)
-    "NRG",    # ~5배
-
-    # 방산 테크 (지정학 슈퍼사이클)
-    "AXON",   # ~8배 (테이저/바디캠)
-    "HWM",    # ~7배 (항공엔진 부품)
-    "KTOS",   # ~5배 (드론/무기)
-    "RKLB",   # ~6배 (로켓랩, 우주)
-
-    # 핀테크 / 암호화폐
-    "HOOD",   # ~6배 (로빈후드)
-    "COIN",   # ~5배 (코인베이스)
+# 기존 슈퍼사이클 16종목 (보존용 — 실험10 재현 등에 사용)
+LEGACY_TICKERS = [
+    "NVDA", "PLTR", "ANET", "MRVL", "AVGO",
+    "MU", "WDC",
+    "CEG", "VST", "NRG",
+    "AXON", "HWM", "KTOS", "RKLB",
+    "HOOD", "COIN",
 ]
 
 BENCHMARK = "SPY"
+
+
+def get_nasdaq100_tickers():
+    """나스닥100 구성종목 반환 (2025년 기준 하드코딩 — 분기별 수동 업데이트)."""
+    tickers = [
+        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST",
+        "NFLX", "ASML", "AMD", "PEP", "CSCO", "ADBE", "TMUS", "TXN", "QCOM", "INTU",
+        "AMAT", "ISRG", "AMGN", "HON", "BKNG", "VRTX", "ADP", "MU", "LRCX", "REGN",
+        "PANW", "SBUX", "GILD", "ADI", "MDLZ", "MELI", "INTC", "KLAC", "SNPS", "CDNS",
+        "ABNB", "CEG", "CTAS", "CRWD", "CSX", "DXCM", "EA", "EXC", "FAST", "FTNT",
+        "GFS", "IDXX", "ILMN", "KDP", "KHC", "LULU", "MAR", "MCHP", "MNST", "MRNA",
+        "MRVL", "MSCI", "NXPI", "ODFL", "ON", "ORLY", "PAYX", "PCAR", "PDD", "ROST",
+        "ROP", "SIRI", "SPLK", "TEAM", "TTD", "TTWO", "TXN", "VRSK", "WDAY", "WBA",
+        "WBD", "XCEL", "ZS", "ANET", "BIIB", "DDOG", "FANG", "GEHC", "GFS", "SMCI",
+        "PLTR", "APP", "HOOD", "COIN", "ARM", "AXON", "RKLB", "KTOS", "HWM", "VST",
+    ]
+    # 중복 제거
+    tickers = list(dict.fromkeys(tickers))
+    print(f"  나스닥100 종목 수: {len(tickers)}개 (하드코딩)")
+    return tickers
+
+
+# 기본 유니버스 — 실행 시점에 동적으로 교체 가능
+UNIVERSE_TICKERS = LEGACY_TICKERS
 
 
 # ─────────────────────────────────────────────
@@ -105,13 +109,19 @@ def get_universe(price_data, date):
         volume = df['Volume']
         current_close = close.iloc[idx]
 
-        # 52주 신고가 대비 -10% 이내
+        # 52주 신고가 대비 -5% 이내 (기존 -10%에서 강화 — 추세 지속 종목만)
         high_52w = close.iloc[idx - 252:idx].max()
-        if current_close < high_52w * 0.90:
+        if current_close < high_52w * 0.95:
             continue
 
-        # 최근 3개월 수익률 (S&P500 대비 상위 25% 판단은 후처리)
+        # 최근 3개월 수익률
         ret_3m = current_close / close.iloc[idx - 63] - 1
+
+        # 6개월 수익률도 양수여야 함 (단기 반등이 아닌 중기 추세 확인)
+        if idx >= 126:
+            ret_6m = current_close / close.iloc[idx - 126] - 1
+            if ret_6m <= 0:
+                continue
 
         # 일평균 거래대금 $50M 이상
         avg_dollar_vol = (close.iloc[idx - 20:idx] * volume.iloc[idx - 20:idx]).mean()
@@ -123,9 +133,9 @@ def get_universe(price_data, date):
     if not candidates:
         return []
 
-    cand_df = pd.DataFrame(candidates)
-    threshold = cand_df['ret_3m'].quantile(0.75)
-    filtered = cand_df[cand_df['ret_3m'] >= threshold]['ticker'].tolist()
+    cand_df = pd.DataFrame(candidates).sort_values('ret_3m', ascending=False)
+    # 모멘텀 상위 30종목 고정 (유니버스 크기 명시적 제어)
+    filtered = cand_df.head(30)['ticker'].tolist()
     return filtered
 
 
@@ -866,7 +876,7 @@ def analyze_ticker_pnl(trade_log, price_data, initial_capital):
     sell_trades = trades[trades['action'].str.startswith('SELL')].copy()
 
     stats = {}
-    for ticker in UNIVERSE_TICKERS:
+    for ticker in [t for t in price_data if t != BENCHMARK]:
         buys  = buy_trades[buy_trades['ticker'] == ticker]
         sells = sell_trades[sell_trades['ticker'] == ticker]
 
@@ -954,26 +964,40 @@ def analyze_ticker_pnl(trade_log, price_data, initial_capital):
 # 실행
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    price_data = load_data(UNIVERSE_TICKERS, CONFIG['period_years'])
+    # 나스닥100 동적 유니버스 수집 (실패 시 LEGACY_TICKERS로 자동 대체)
+    print("유니버스 수집 중...")
+    dynamic_tickers = get_nasdaq100_tickers()
+
+    # 나스닥100 + LEGACY 합쳐서 한 번만 다운로드 (yfinance 이중 호출 버그 방지)
+    all_tickers = list(dict.fromkeys(dynamic_tickers + LEGACY_TICKERS))
+    price_data_all = load_data(all_tickers, 5)
+
+    # LEGACY 16종목만 필터링한 서브셋 (같은 데이터 객체 재사용)
+    price_data_legacy = {t: price_data_all[t] for t in LEGACY_TICKERS if t in price_data_all}
+    price_data_legacy[BENCHMARK] = price_data_all[BENCHMARK]
 
     results = []
     spy_curve = None
 
-    # 실험 10: SPY MA 기간 비교 — none / MA200 / MA100 / MA50 (ATR 4% + 트레일링 고정)
+    # 실험 14: max_positions 비교 — NDX100 Top30 유니버스 고정, 포지션 수만 변화
+    # 실험13에서 거래수 과다(230건)가 MDD 악화 원인으로 파악 → 집중도 상향 검증
     scenarios = [
-        ('none',  200, 'bear=none (기준)'),
-        ('block', 200, 'block SPY MA200'),
-        ('block', 100, 'block SPY MA100'),
-        ('block',  50, 'block SPY MA50'),
+        (5, 'NDX100 Top30  max=5'),
+        (3, 'NDX100 Top30  max=3 (기준)'),
+        (2, 'NDX100 Top30  max=2'),
+        (1, 'NDX100 Top30  max=1'),
     ]
-    for bear, ma_period, label in scenarios:
+    for max_pos, label in scenarios:
+        CONFIG['max_positions'] = max_pos
         portfolio = PortfolioManager(CONFIG['initial_capital'])
-        run_backtest(price_data, portfolio, bear_filter=bear, stop_mode='pct12', exit_mode='hybrid',
-                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=ma_period)
-        metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
+        run_backtest(price_data_all, portfolio, bear_filter='block', stop_mode='pct12', exit_mode='hybrid',
+                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=200)
+        metrics, ec, spy_crv = compute_metrics(portfolio, price_data_all)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    plot_comparison(results, spy_curve, title="실험10: SPY MA 기준선 비교 (ATR4% + 트레일링) — 5Y")
+    CONFIG['max_positions'] = 3  # 원복
+
+    plot_comparison(results, spy_curve, title="실험14: max_positions 비교 (NDX100 Top30) — 5Y")
