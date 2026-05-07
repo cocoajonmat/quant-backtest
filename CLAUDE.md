@@ -4,8 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 실험 기록 규칙
 
-백테스트를 실행할 때마다 결과를 **CONTEXT.md의 실험 로그**에 누적 기록한다.
-새 대화에서 히스토리 파악이 필요하면 CONTEXT.md를 먼저 읽는다.
+백테스트를 실행할 때마다 결과를 **전략별 CONTEXT 파일의 실험 로그**에 누적 기록한다.
+새 대화에서 히스토리 파악이 필요하면 먼저 **CONTEXT.md(인덱스)**를 읽고, 해당 전략 파일로 이동한다.
+
+- 슈퍼사이클 추세추종 실험 → `CONTEXT_supercycle.md`
+- 일반 추세추종 실험 → `CONTEXT_trend.md`
 
 ## 실행
 

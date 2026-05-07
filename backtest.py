@@ -1,3 +1,4 @@
+import os
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -65,26 +66,43 @@ UNIVERSE_TICKERS = LEGACY_TICKERS
 # ─────────────────────────────────────────────
 # 1. 데이터 로드
 # ─────────────────────────────────────────────
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
 def load_data(tickers, period_years=5):
+    os.makedirs(DATA_DIR, exist_ok=True)
     end = datetime.today()
-    start = end - timedelta(days=period_years * 365 + 60)  # MA 계산용 여유 기간
+    start = end - timedelta(days=period_years * 365 + 60)
 
-    print(f"데이터 다운로드 중... ({len(tickers)}개 종목)")
-    raw = yf.download(tickers + [BENCHMARK], start=start, end=end,
-                      auto_adjust=True, progress=False)
-
-    price_data = {}
-    for ticker in tickers + [BENCHMARK]:
-        try:
-            if len(tickers) == 1:
-                df = raw.copy()
-            else:
-                df = raw.xs(ticker, axis=1, level=1).dropna(how='all')
+    # CSV 캐시 확인 — 있으면 로드, 없는 종목만 yfinance 다운로드
+    all_tickers = list(dict.fromkeys(tickers + [BENCHMARK]))
+    cached, to_download = {}, []
+    for ticker in all_tickers:
+        csv_path = os.path.join(DATA_DIR, f"{ticker}.csv")
+        if os.path.exists(csv_path):
+            df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
             if len(df) > 200:
-                price_data[ticker] = df
-        except Exception:
-            pass
+                cached[ticker] = df
+            else:
+                to_download.append(ticker)
+        else:
+            to_download.append(ticker)
 
+    if to_download:
+        print(f"데이터 다운로드 중... ({len(to_download)}개 종목 - 신규/미캐시)")
+        raw = yf.download(to_download, start=start, end=end,
+                          auto_adjust=True, progress=False)
+        for ticker in to_download:
+            try:
+                df = raw.copy() if len(to_download) == 1 else raw.xs(ticker, axis=1, level=1).dropna(how='all')
+                if len(df) > 200:
+                    df.to_csv(os.path.join(DATA_DIR, f"{ticker}.csv"))
+                    cached[ticker] = df
+            except Exception:
+                pass
+    else:
+        print(f"데이터 캐시 로드 중... ({len(cached)}개 종목)")
+
+    price_data = {t: cached[t] for t in all_tickers if t in cached}
     print(f"  → {len(price_data) - 1}개 종목 로드 완료")
     return price_data
 
@@ -964,40 +982,27 @@ def analyze_ticker_pnl(trade_log, price_data, initial_capital):
 # 실행
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    # 나스닥100 동적 유니버스 수집 (실패 시 LEGACY_TICKERS로 자동 대체)
-    print("유니버스 수집 중...")
-    dynamic_tickers = get_nasdaq100_tickers()
-
-    # 나스닥100 + LEGACY 합쳐서 한 번만 다운로드 (yfinance 이중 호출 버그 방지)
-    all_tickers = list(dict.fromkeys(dynamic_tickers + LEGACY_TICKERS))
-    price_data_all = load_data(all_tickers, 5)
-
-    # LEGACY 16종목만 필터링한 서브셋 (같은 데이터 객체 재사용)
-    price_data_legacy = {t: price_data_all[t] for t in LEGACY_TICKERS if t in price_data_all}
-    price_data_legacy[BENCHMARK] = price_data_all[BENCHMARK]
+    # 실험10 재현: 단 한 번만 다운로드 후 4개 시나리오 비교 (당시 방식 그대로)
+    price_data = load_data(LEGACY_TICKERS, 5)
 
     results = []
     spy_curve = None
+    CONFIG['max_positions'] = 3
 
-    # 실험 14: max_positions 비교 — NDX100 Top30 유니버스 고정, 포지션 수만 변화
-    # 실험13에서 거래수 과다(230건)가 MDD 악화 원인으로 파악 → 집중도 상향 검증
     scenarios = [
-        (5, 'NDX100 Top30  max=5'),
-        (3, 'NDX100 Top30  max=3 (기준)'),
-        (2, 'NDX100 Top30  max=2'),
-        (1, 'NDX100 Top30  max=1'),
+        ('none',  200, 'bear=none (기준)'),
+        ('block', 200, 'block SPY MA200'),
+        ('block', 100, 'block SPY MA100'),
+        ('block',  50, 'block SPY MA50'),
     ]
-    for max_pos, label in scenarios:
-        CONFIG['max_positions'] = max_pos
+    for bear, ma_period, label in scenarios:
         portfolio = PortfolioManager(CONFIG['initial_capital'])
-        run_backtest(price_data_all, portfolio, bear_filter='block', stop_mode='pct12', exit_mode='hybrid',
-                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=200)
-        metrics, ec, spy_crv = compute_metrics(portfolio, price_data_all)
+        run_backtest(price_data, portfolio, bear_filter=bear, stop_mode='pct12', exit_mode='hybrid',
+                     atr_sizing=True, atr_risk_pct=0.04, trailing_stop=True, spy_ma_period=ma_period)
+        metrics, ec, spy_crv = compute_metrics(portfolio, price_data)
         if spy_curve is None:
             spy_curve = spy_crv
         print_metrics(metrics)
         results.append({"label": label, "ec": ec, "metrics": metrics, "trades": portfolio.trade_log})
 
-    CONFIG['max_positions'] = 3  # 원복
-
-    plot_comparison(results, spy_curve, title="실험14: max_positions 비교 (NDX100 Top30) — 5Y")
+    plot_comparison(results, spy_curve, title="실험10: SPY MA 기준선 비교 (ATR4% + 트레일링) - 5Y")
