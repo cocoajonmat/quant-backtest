@@ -16,7 +16,7 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 | 전략 | 파일 | 현황 |
 |------|------|------|
 | 슈퍼사이클 추세추종 | [CONTEXT_supercycle.md](CONTEXT_supercycle.md) | 실험21 완료, 샤프 1.76 달성 |
-| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 실험B3 완료, 샤프 1.13 달성 |
+| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 실험K2 완료, 샤프 1.16 달성 |
 
 ---
 
@@ -29,7 +29,6 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 
 **일반 추세추종 (방향 A 진행 중)**
 - 파일: `trend_backtest.py`
-- 채택 전략: NDX100 동적 top5 / ret12>30% / bear=block MA50 / ATR 4% / max_positions=4 (실험G2)
-- 최고 기록 (8년): +469.8% / CAGR 27.5% / MDD -24.1% / 샤프 0.90 (SPY +189.9%)
-- 최고 기록 (5년): +295.4% / CAGR 39.1% / MDD -24.0% / 샤프 1.19 (SPY +86.9%)
-- 다음 실험: G2 기준 세부 튜닝 (ADX 스윕 등), 방향 B 착수
+- 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 (실험K2)
+- 최고 기록 (8년): +893.1% / CAGR 37.8% / MDD -21.4% / 샤프 1.16 (SPY +189.9%)
+- 다음 실험: 방향 B (터틀 스타일), 진입 신호 단순화, 청산 로직 단순화

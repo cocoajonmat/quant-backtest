@@ -62,7 +62,7 @@ def calc_momentum_score(close, idx, window=90):
 
 def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
                          ret12_min=0.40, dollar_vol_min=100_000_000,
-                         momentum_mode='ret3m', linreg_gate=0.15):
+                         momentum_mode='ret3m', linreg_gate=0.15, linreg_window=90):
     """
     NDX100 전체에서 슈퍼사이클 초입 특성을 보이는 종목 동적 선발.
 
@@ -117,7 +117,7 @@ def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
 
         else:  # linreg
             # 신규: 지수회귀 기울기 × R² — 추세 강도 + 선형성 동시 측정
-            score = calc_momentum_score(close, idx, window=90)
+            score = calc_momentum_score(close, idx, window=linreg_window)
             if score <= linreg_gate:
                 continue
             sort_key = score
@@ -164,7 +164,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
                          trailing_stop='original', spy_ma_period=200,
                          adx_threshold=20, min_hold_days=3,
-                         momentum_mode='ret3m', linreg_gate=0.15):
+                         momentum_mode='ret3m', linreg_gate=0.15, linreg_window=90,
+                         portfolio_heat_cap=None):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -203,6 +204,7 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                 price_data, date, top_n=top_n, adx_min=adx_min,
                 ret12_min=ret12_min, dollar_vol_min=dollar_vol_min,
                 momentum_mode=momentum_mode, linreg_gate=linreg_gate,
+                linreg_window=linreg_window,
             )
             last_universe_update = date
 
@@ -312,6 +314,27 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         cap_override = (current_eq * atr_risk_pct) / stop_dist_pct
                         cap_override = max(200, min(cap_override, current_eq * atr_position_cap))
 
+                # 포트폴리오 열 리스크 캡 체크
+                if portfolio_heat_cap is not None and atr_sizing:
+                    current_eq = portfolio.total_equity(price_snapshot)
+                    total_heat = 0.0
+                    for h_ticker, h_pos in portfolio.positions.items():
+                        if h_ticker not in price_data or date not in price_data[h_ticker].index:
+                            continue
+                        h_df = price_data[h_ticker]
+                        h_idx = h_df.index.get_loc(date)
+                        if h_idx < 15:
+                            continue
+                        h_atr = bt.calc_atr(h_df, h_idx)
+                        h_price = price_snapshot.get(h_ticker, 0)
+                        if h_price <= 0:
+                            continue
+                        h_stop_dist = (h_atr * 2.5) / h_price
+                        h_value = h_pos.shares * h_price
+                        total_heat += (h_value * h_stop_dist) / current_eq
+                    if total_heat >= portfolio_heat_cap:
+                        continue
+
                 success = portfolio.buy(ticker, entry_price, strength, date, tranche=1,
                                         price_snapshot=price_snapshot, capital_override=cap_override)
                 if success:
@@ -334,36 +357,40 @@ if __name__ == "__main__":
     NDX100 = get_nasdaq100_tickers()
 
     print("="*60)
-    print("  일반 추세추종 방향A — 현재 채택 파라미터 (J2 기준)")
+    print("  일반 추세추종 방향A -- 현재 채택 파라미터 (J2 기준)")
     print("  momentum=linreg / gate=0.15 / ret12>20% / bear=MA50")
     print("="*60)
 
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    # 현재 채택 파라미터 (J2 기준, 2026-05-08)
+    # 현재 채택 파라미터 (K2 기준, 2026-05-08)
     COMMON = dict(
         top_n=5, adx_min=20,
-        momentum_mode='linreg', linreg_gate=0.15,
+        momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
         bear_filter='block', spy_ma_period=50,
         stop_mode='pct12', exit_mode='hybrid',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
+        portfolio_heat_cap=0.10,
     )
 
-    # 다음 실험을 여기에 추가 (K 시리즈: linreg 윈도우 스윕 등)
+    # K2 시리즈: 포트폴리오 열 리스크 캡 스윕 (None / 8% / 10% / 12%)
     results = []
     spy_curve = None
 
-    print(f"\n[J2 기준 — 8Y]")
-    p = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p, **COMMON)
-    m, ec, sc = compute_metrics(p, price_data)
-    m['label'] = "J2: linreg+ret12>20% (채택, 8Y)"
-    print_metrics(m)
-    results.append({"label": m['label'], "ec": ec, "metrics": m})
-    spy_curve = sc
+    for cap, label_suffix in [(None, "없음(J2기준)"), (0.08, "8%"), (0.10, "10%"), (0.12, "12%")]:
+        label = f"K2 heat_cap={label_suffix}"
+        print(f"\n[{label}]")
+        p = PortfolioManager(CONFIG['initial_capital'])
+        run_dynamic_backtest(price_data, p, portfolio_heat_cap=cap, **COMMON)
+        m, ec, sc = compute_metrics(p, price_data)
+        m['label'] = label
+        print_metrics(m)
+        results.append({"label": label, "ec": ec, "metrics": m})
+        if spy_curve is None:
+            spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="일반 추세추종 방향A — J2 채택 파라미터 (8Y)")
+                    title="K2 시리즈 -- 포트폴리오 열 리스크 캡 스윕 (8Y)")
