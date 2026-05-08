@@ -15,17 +15,20 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 
 | 전략 | 파일 | 현황 |
 |------|------|------|
-| 슈퍼사이클 추세추종 | [CONTEXT_supercycle.md](CONTEXT_supercycle.md) | 실험 14개 완료, 샤프 1.72 달성 |
-| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 설계 방향 정의, 미시작 |
+| 슈퍼사이클 추세추종 | [CONTEXT_supercycle.md](CONTEXT_supercycle.md) | 실험21 완료, 샤프 1.76 달성 |
+| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 실험B3 완료, 샤프 1.13 달성 |
 
 ---
 
 ## 빠른 현황 요약
 
-**슈퍼사이클 (현재 집중)**
-- 채택 전략: hybrid / SPY MA200 block / pct12 / trailing_stop=on / ATR 4% / 16종목
-- 최고 기록: +480.0% / CAGR 52.5% / MDD -22.0% / 샤프 1.56 (SPY +86.9%, data/ CSV 스냅샷 기준)
-- 다음 실험: 섹터 ETF 모멘텀 필터 추가
+**슈퍼사이클 (실험21 채택)**
+- 채택 전략: hybrid / SPY MA200 block / pct12 / trailing_stop=original / ATR 4% / max_positions=4 / ADX>=20 / min_hold_days=3 / 16종목
+- 최고 기록: +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
+- 다음 실험: 슈퍼사이클 유니버스 동적 갱신 로직
 
-**일반 추세추종**
-- 아직 시작 전. 슈퍼사이클 다음 단계로 예정.
+**일반 추세추종 (방향 A 진행 중)**
+- 파일: `trend_backtest.py`
+- 채택 전략: NDX100 동적 top8 / ret12>40% / bear=block MA100 / ATR 4% / max_positions=4
+- 최고 기록: +240.2% / CAGR 34.2% / MDD -21.5% / 샤프 1.13 (SPY +86.9%)
+- 다음 실험: top_n 집중도 스윕 (3~6), max_positions 스윕, 방향 B 착수
