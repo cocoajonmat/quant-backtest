@@ -90,7 +90,8 @@ def load_data(tickers, period_years=5):
         csv_path = os.path.join(DATA_DIR, f"{ticker}.csv")
         if os.path.exists(csv_path):
             df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
-            if len(df) > 200:
+            # 캐시 데이터가 요청 기간을 충분히 커버하는지 확인
+            if len(df) > 200 and len(df) >= period_years * 240:
                 cached[ticker] = df
             else:
                 to_download.append(ticker)

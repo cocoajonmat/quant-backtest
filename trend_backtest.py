@@ -294,65 +294,43 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
 if __name__ == "__main__":
 
     NDX100 = get_nasdaq100_tickers()
+
+    print("="*60)
+    print("  일반 추세추종 - 방향 A: bear filter MA50 vs MA100 (G 시리즈, 8Y)")
+    print("  ret12>30% / top5 / max_pos=4 고정")
+    print("="*60)
+
     CONFIG['max_positions'] = 4
+    price_data = load_data(NDX100, period_years=8)
 
-    print("="*60)
-    print("  일반 추세추종 - 방향 A: bear_filter MA 기준 스윕")
-    print("  A1 기준 고정 (top8/ret12>40%/ADX>=20), bear_filter만 변경")
-    print("="*60)
-
-    price_data = load_data(NDX100, period_years=5)
-
-    # 공통 파라미터
     COMMON = dict(
-        top_n=8, adx_min=20, ret12_min=0.40,
+        top_n=5, adx_min=20,
+        bear_filter='block',
         stop_mode='pct12', exit_mode='hybrid',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
     )
 
-    # ── 실험 B1: bear_filter=none ──
-    print("\n[실험 B1] bear_filter=none (필터 없음)")
-    CONFIG['max_positions'] = 4
-    p_b1 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p_b1, bear_filter='none', spy_ma_period=200, **COMMON)
-    m_b1, ec_b1, spy_curve = compute_metrics(p_b1, price_data)
-    m_b1['label'] = 'B1: none'
-    print_metrics(m_b1)
-
-    # ── 실험 B2: bear_filter=block MA200 (기존 기준) ──
-    print("\n[실험 B2] bear_filter=block MA200 (기존 A1 기준)")
-    CONFIG['max_positions'] = 4
-    p_b2 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p_b2, bear_filter='block', spy_ma_period=200, **COMMON)
-    m_b2, ec_b2, _ = compute_metrics(p_b2, price_data)
-    m_b2['label'] = 'B2: block MA200'
-    print_metrics(m_b2)
-
-    # ── 실험 B3: bear_filter=block MA100 ──
-    print("\n[실험 B3] bear_filter=block MA100")
-    CONFIG['max_positions'] = 4
-    p_b3 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p_b3, bear_filter='block', spy_ma_period=100, **COMMON)
-    m_b3, ec_b3, _ = compute_metrics(p_b3, price_data)
-    m_b3['label'] = 'B3: block MA100'
-    print_metrics(m_b3)
-
-    # ── 실험 B4: bear_filter=block MA50 ──
-    print("\n[실험 B4] bear_filter=block MA50")
-    CONFIG['max_positions'] = 4
-    p_b4 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p_b4, bear_filter='block', spy_ma_period=50, **COMMON)
-    m_b4, ec_b4, _ = compute_metrics(p_b4, price_data)
-    m_b4['label'] = 'B4: block MA50'
-    print_metrics(m_b4)
-
-    # ── 결과 비교 차트 ──
-    results = [
-        {"label": m_b1['label'], "ec": ec_b1, "metrics": m_b1},
-        {"label": m_b2['label'], "ec": ec_b2, "metrics": m_b2},
-        {"label": m_b3['label'], "ec": ec_b3, "metrics": m_b3},
-        {"label": m_b4['label'], "ec": ec_b4, "metrics": m_b4},
+    # F2 기준 (ret12>30%) + bear filter MA50 vs MA100 비교
+    experiments = [
+        ("G1", 100, "★기준 MA100"),
+        ("G2", 50,  "MA50"),
     ]
+
+    results = []
+    spy_curve = None
+
+    for name, ma_period, desc in experiments:
+        print(f"\n[실험 {name}] bear=block MA{ma_period} / ret12>30%")
+        p = PortfolioManager(CONFIG['initial_capital'])
+        run_dynamic_backtest(price_data, p, ret12_min=0.30, spy_ma_period=ma_period, **COMMON)
+        m, ec, sc = compute_metrics(p, price_data)
+        label = f"{name}: {desc}"
+        m['label'] = label
+        print_metrics(m)
+        results.append({"label": label, "ec": ec, "metrics": m})
+        if spy_curve is None:
+            spy_curve = sc
+
     plot_comparison(results, spy_curve,
-                    title="일반 추세추종 방향A - bear_filter MA 기준 스윕 (5Y)")
+                    title="일반 추세추종 방향A - bear filter MA100 vs MA50 (8Y, ret12>30%)")
