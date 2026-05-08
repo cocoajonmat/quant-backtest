@@ -527,7 +527,8 @@ def calc_adx(df, idx, period=14):
 
 
 # stop_mode: 'pct8' | 'pct12' | 'atr'
-def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', trailing_stop=False):
+# exit_mode: 'current' | 'fast' | 'confirm' | 'hybrid' | 'ma20_simple'
+def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', trailing_stop=False, use_macd_rsi_exit=True):
     close = df['Close']
     current = close.iloc[idx]
     signals = []
@@ -611,7 +612,7 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
             return [('TRAIL_STOP', 1.0)]
 
     # MACD 데드크로스 + RSI 50 하향
-    if idx >= 35:
+    if use_macd_rsi_exit and idx >= 35:
         ema12 = close.iloc[:idx + 1].ewm(span=12).mean().iloc[-1]
         ema26 = close.iloc[:idx + 1].ewm(span=26).mean().iloc[-1]
         ema12_prev = close.iloc[:idx].ewm(span=12).mean().iloc[-1]
@@ -684,6 +685,11 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
                 elif current < ma10 and pos.sold_pct < 0.50:
                     # MA10 첫 이탈 → 50% 청산
                     signals.append(('MA10_HYBRID_HALF', 0.50))
+
+        elif exit_mode == 'ma20_simple':
+            # 가장 단순: MA20 이탈 즉시 전량 청산 (부분청산/MA10/MA5 없음)
+            if current < ma20:
+                signals.append(('MA20_SIMPLE', 1.0))
 
     return signals
 

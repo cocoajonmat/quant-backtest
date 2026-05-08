@@ -47,7 +47,7 @@ pip install yfinance pandas numpy matplotlib
 
 **다음 작업:**
 - **슈퍼사이클**: 유니버스 동적 갱신 로직 — 반기/분기마다 테마 재검토
-- **일반 추세추종**: 방향 B (터틀 스타일), 진입 신호 단순화, 청산 로직 단순화 — CONTEXT_trend.md 참고
+- **일반 추세추종**: 방향 B (터틀 스타일), 상관관계 집중도 제한 — CONTEXT_trend.md 참고
 
 ## 코드 구조
 
@@ -83,7 +83,8 @@ compute_metrics() → plot_comparison()
 **run_backtest 파라미터**
 - `bear_filter`: `'none'` / `'block'`(SPY 200일선 아래 진입 차단) / `'strict'`(Strong만 허용)
 - `stop_mode`: `'pct8'` / `'pct12'` / `'atr'`
-- `exit_mode`: `'current'`(단계적) / `'fast'`(MA10 즉시전량) / `'confirm'`(MA20 3일확인) / `'hybrid'`(MA10→50% + MA20 3일확인→잔여전량, **현재 최우수**)
+- `exit_mode`: `'current'`(단계적) / `'fast'`(MA10 즉시전량) / `'confirm'`(MA20 3일확인) / `'hybrid'`(MA10→50% + MA20 3일확인→잔여전량, **현재 최우수**) / `'ma20_simple'`(MA20 즉시전량, 단순화용)
+- `use_macd_rsi_exit`: True(기본) / **False**(일반 추세추종 채택 — MACD+RSI 조기청산 제거)
 
 **팩터 점수 (기술적 60점 만점 → 100점 정규화)**
 - 52주 신고가 돌파 +20, MA 정배열 +15, MACD 골든크로스 +10, RSI 50~70 +10, 거래량 1.5배+ +5

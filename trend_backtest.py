@@ -165,10 +165,21 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          trailing_stop='original', spy_ma_period=200,
                          adx_threshold=20, min_hold_days=3,
                          momentum_mode='ret3m', linreg_gate=0.15, linreg_window=90,
-                         portfolio_heat_cap=None):
+                         portfolio_heat_cap=None,
+                         entry_mode='score',
+                         use_macd_rsi_exit=True):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
+
+    entry_mode:
+      'score'          — 기존: 5팩터 점수합산 (strong >= 70 / medium >= 50)
+      'universe_only'  — 유니버스 필터 통과한 모든 종목 직접 'strong' 처리 (점수 제거)
+      'and_52w'        — 52주 신고가 5% 이내 AND 조건 충족 시 'strong' 처리 (Minervini SEPA)
+
+    use_macd_rsi_exit:
+      True  — MACD 데드크로스 + RSI 50 하향 시 즉시 전량 청산 (기존)
+      False — 해당 청산 규칙 비활성화
     """
     from datetime import timedelta
 
@@ -218,7 +229,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
 
             hold_days = (date - pos.entry_date).days if min_hold_days > 0 else 0
             sell_signals = bt.check_sell_signals(df, idx, pos, stop_mode=stop_mode,
-                                                  exit_mode=exit_mode, trailing_stop=trailing_stop)
+                                                  exit_mode=exit_mode, trailing_stop=trailing_stop,
+                                                  use_macd_rsi_exit=use_macd_rsi_exit)
             if min_hold_days > 0 and hold_days < min_hold_days:
                 sell_signals = [(r, ratio) for r, ratio in sell_signals
                                 if r in ('HARD_STOP', 'TRAIL_STOP')]
@@ -285,14 +297,21 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                 if idx < 252:
                     continue
 
-                score, _ = bt.calculate_signal_score(df, idx)
-
-                if score >= CONFIG['strong_signal_threshold']:
+                if entry_mode == 'score':
+                    score, _ = bt.calculate_signal_score(df, idx)
+                    if score >= CONFIG['strong_signal_threshold']:
+                        strength = 'strong'
+                    elif score >= CONFIG['medium_signal_threshold']:
+                        strength = 'medium'
+                    else:
+                        continue
+                elif entry_mode == 'and_52w':
+                    high_52w = df['Close'].iloc[idx - 252:idx].max()
+                    if df['Close'].iloc[idx] < high_52w * 0.95:
+                        continue
                     strength = 'strong'
-                elif score >= CONFIG['medium_signal_threshold']:
-                    strength = 'medium'
-                else:
-                    continue
+                else:  # 'universe_only'
+                    strength = 'strong'
 
                 if bear_filter == 'block' and not spy_above_ma:
                     continue
@@ -357,34 +376,44 @@ if __name__ == "__main__":
     NDX100 = get_nasdaq100_tickers()
 
     print("="*60)
-    print("  일반 추세추종 방향A -- 현재 채택 파라미터 (J2 기준)")
-    print("  momentum=linreg / gate=0.15 / ret12>20% / bear=MA50")
+    print("  M 시리즈 -- 청산 로직 단순화 비교")
+    print("  M1: hybrid+MACD (기준) / M2: hybrid+MACD제거")
+    print("  M3: MA20단일+MACD제거 / M4: MA20 3일확인+MACD제거")
     print("="*60)
 
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    # 현재 채택 파라미터 (K2 기준, 2026-05-08)
+    # 채택 파라미터 (M2 기준, 2026-05-08)
     COMMON = dict(
         top_n=5, adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
         bear_filter='block', spy_ma_period=50,
-        stop_mode='pct12', exit_mode='hybrid',
+        stop_mode='pct12',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
         portfolio_heat_cap=0.10,
+        entry_mode='score',
+        use_macd_rsi_exit=False,
     )
 
-    # K2 시리즈: 포트폴리오 열 리스크 캡 스윕 (None / 8% / 10% / 12%)
+    # M 시리즈: 청산 로직 단순화 스윕
     results = []
     spy_curve = None
 
-    for cap, label_suffix in [(None, "없음(J2기준)"), (0.08, "8%"), (0.10, "10%"), (0.12, "12%")]:
-        label = f"K2 heat_cap={label_suffix}"
+    experiments = [
+        dict(exit_mode='hybrid',      use_macd_rsi_exit=True,  label='M1 (기준) hybrid+MACD+RSI'),
+        dict(exit_mode='hybrid',      use_macd_rsi_exit=False, label='M2 hybrid (MACD+RSI 제거)'),
+        dict(exit_mode='ma20_simple', use_macd_rsi_exit=False, label='M3 MA20단일즉시+MACD제거'),
+        dict(exit_mode='confirm',     use_macd_rsi_exit=False, label='M4 MA20 3일확인+MACD제거'),
+    ]
+
+    for exp in experiments:
+        label = exp.pop('label')
         print(f"\n[{label}]")
         p = PortfolioManager(CONFIG['initial_capital'])
-        run_dynamic_backtest(price_data, p, portfolio_heat_cap=cap, **COMMON)
+        run_dynamic_backtest(price_data, p, **COMMON, **exp)
         m, ec, sc = compute_metrics(p, price_data)
         m['label'] = label
         print_metrics(m)
@@ -393,4 +422,4 @@ if __name__ == "__main__":
             spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="K2 시리즈 -- 포트폴리오 열 리스크 캡 스윕 (8Y)")
+                    title="M 시리즈 — 청산 로직 단순화 비교 (8Y)")
