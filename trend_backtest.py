@@ -29,6 +29,7 @@ import matplotlib.dates as mdates
 import warnings
 warnings.filterwarnings('ignore')
 
+import scipy.stats
 import backtest as bt
 from backtest import (
     CONFIG, BENCHMARK, SECTOR_ETFS,
@@ -44,19 +45,39 @@ plt.rcParams['axes.unicode_minus'] = False
 # ─────────────────────────────────────────────
 # 동적 슈퍼사이클 감지 유니버스
 # ─────────────────────────────────────────────
+def calc_momentum_score(close, idx, window=90):
+    """
+    지수회귀 기울기 × R² 모멘텀 점수 (Clenow 방식).
+    로그 가격에 선형회귀 → 기울기(연환산) × R²
+    값이 클수록 추세가 강하고 선형적(노이즈 적음).
+    """
+    if idx < window:
+        return 0.0
+    log_prices = np.log(close.iloc[idx - window:idx + 1].values)
+    x = np.arange(len(log_prices))
+    slope, _, r_value, _, _ = scipy.stats.linregress(x, log_prices)
+    annualized_slope = slope * 252
+    return annualized_slope * (r_value ** 2)
+
+
 def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
-                         ret12_min=0.40, dollar_vol_min=100_000_000):
+                         ret12_min=0.40, dollar_vol_min=100_000_000,
+                         momentum_mode='ret3m', linreg_gate=0.15):
     """
     NDX100 전체에서 슈퍼사이클 초입 특성을 보이는 종목 동적 선발.
 
-    조건 (전부 충족):
-      - 12개월 수익률 > ret12_min (기본 40%)
-      - 3개월 수익률 > 12개월 수익률 / 4  (모멘텀 가속 — 연간 평균의 25% 이상을 최근 3개월에 달성)
+    momentum_mode:
+      'ret3m'   — 기존 방식: 3개월 수익률 > ret12m / 4 (가속 필터) + 3개월 수익률로 정렬
+      'linreg'  — 신규 방식: 90일 지수회귀 기울기 × R² 로 가속 판정 + 정렬 (Clenow)
+
+    공통 필터 (전부 충족):
+      - 12개월 수익률 > ret12_min
+      - 6개월 수익률 > 0
       - MA 정배열: 현재가 > MA50 > MA200
       - ADX >= adx_min
       - 일평균 거래대금 >= dollar_vol_min
 
-    반환: 3개월 수익률 내림차순 Top top_n 종목 리스트
+    반환: 모멘텀 점수 내림차순 Top top_n 종목 리스트
     """
     candidates = []
 
@@ -74,12 +95,12 @@ def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
         volume = df['Volume']
         current = close.iloc[idx]
 
-        # 12개월 수익률
+        # 12개월 수익률 필터
         ret_12m = current / close.iloc[idx - 252] - 1
         if ret_12m <= ret12_min:
             continue
 
-        # 6개월 수익률 (양수 확인 — 추세 지속성)
+        # 6개월 수익률 양수 확인
         if idx >= 126:
             ret_6m = current / close.iloc[idx - 126] - 1
             if ret_6m <= 0:
@@ -88,9 +109,18 @@ def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
         # 3개월 수익률
         ret_3m = current / close.iloc[idx - 63] - 1
 
-        # 모멘텀 가속: 최근 3개월이 12개월 평균 분기 수익률보다 높아야 함
-        if ret_3m <= ret_12m / 4:
-            continue
+        if momentum_mode == 'ret3m':
+            # 기존: 모멘텀 가속 필터 (3개월이 연간 평균 분기보다 빨라야 함)
+            if ret_3m <= ret_12m / 4:
+                continue
+            sort_key = ret_3m
+
+        else:  # linreg
+            # 신규: 지수회귀 기울기 × R² — 추세 강도 + 선형성 동시 측정
+            score = calc_momentum_score(close, idx, window=90)
+            if score <= linreg_gate:
+                continue
+            sort_key = score
 
         # MA 정배열
         if idx < 200:
@@ -110,12 +140,18 @@ def get_dynamic_universe(price_data, date, top_n=8, adx_min=20,
         if avg_dollar_vol < dollar_vol_min:
             continue
 
-        candidates.append({"ticker": ticker, "ret_3m": ret_3m, "ret_12m": ret_12m, "adx": adx})
+        candidates.append({
+            "ticker": ticker,
+            "sort_key": sort_key,
+            "ret_3m": ret_3m,
+            "ret_12m": ret_12m,
+            "adx": adx,
+        })
 
     if not candidates:
         return []
 
-    cand_df = pd.DataFrame(candidates).sort_values('ret_3m', ascending=False)
+    cand_df = pd.DataFrame(candidates).sort_values('sort_key', ascending=False)
     return cand_df.head(top_n)['ticker'].tolist()
 
 
@@ -127,7 +163,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          bear_filter='block', stop_mode='pct12', exit_mode='hybrid',
                          atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
                          trailing_stop='original', spy_ma_period=200,
-                         adx_threshold=20, min_hold_days=3):
+                         adx_threshold=20, min_hold_days=3,
+                         momentum_mode='ret3m', linreg_gate=0.15):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -142,7 +179,7 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     current_universe = []
     last_universe_update = None
 
-    print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min}]")
+    print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
     print("-" * 60)
 
@@ -165,6 +202,7 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
             current_universe = get_dynamic_universe(
                 price_data, date, top_n=top_n, adx_min=adx_min,
                 ret12_min=ret12_min, dollar_vol_min=dollar_vol_min,
+                momentum_mode=momentum_mode, linreg_gate=linreg_gate,
             )
             last_universe_update = date
 
@@ -296,41 +334,36 @@ if __name__ == "__main__":
     NDX100 = get_nasdaq100_tickers()
 
     print("="*60)
-    print("  일반 추세추종 - 방향 A: bear filter MA50 vs MA100 (G 시리즈, 8Y)")
-    print("  ret12>30% / top5 / max_pos=4 고정")
+    print("  일반 추세추종 방향A — 현재 채택 파라미터 (J2 기준)")
+    print("  momentum=linreg / gate=0.15 / ret12>20% / bear=MA50")
     print("="*60)
 
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
+    # 현재 채택 파라미터 (J2 기준, 2026-05-08)
     COMMON = dict(
         top_n=5, adx_min=20,
-        bear_filter='block',
+        momentum_mode='linreg', linreg_gate=0.15,
+        ret12_min=0.20,
+        bear_filter='block', spy_ma_period=50,
         stop_mode='pct12', exit_mode='hybrid',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
     )
 
-    # F2 기준 (ret12>30%) + bear filter MA50 vs MA100 비교
-    experiments = [
-        ("G1", 100, "★기준 MA100"),
-        ("G2", 50,  "MA50"),
-    ]
-
+    # 다음 실험을 여기에 추가 (K 시리즈: linreg 윈도우 스윕 등)
     results = []
     spy_curve = None
 
-    for name, ma_period, desc in experiments:
-        print(f"\n[실험 {name}] bear=block MA{ma_period} / ret12>30%")
-        p = PortfolioManager(CONFIG['initial_capital'])
-        run_dynamic_backtest(price_data, p, ret12_min=0.30, spy_ma_period=ma_period, **COMMON)
-        m, ec, sc = compute_metrics(p, price_data)
-        label = f"{name}: {desc}"
-        m['label'] = label
-        print_metrics(m)
-        results.append({"label": label, "ec": ec, "metrics": m})
-        if spy_curve is None:
-            spy_curve = sc
+    print(f"\n[J2 기준 — 8Y]")
+    p = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p, **COMMON)
+    m, ec, sc = compute_metrics(p, price_data)
+    m['label'] = "J2: linreg+ret12>20% (채택, 8Y)"
+    print_metrics(m)
+    results.append({"label": m['label'], "ec": ec, "metrics": m})
+    spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="일반 추세추종 방향A - bear filter MA100 vs MA50 (8Y, ret12>30%)")
+                    title="일반 추세추종 방향A — J2 채택 파라미터 (8Y)")
