@@ -22,14 +22,12 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 
 ## 빠른 현황 요약
 
-**슈퍼사이클 (실험21 채택)**
+### 슈퍼사이클 (실험21 채택)
 - 채택 전략: hybrid / SPY MA200 block / pct12 / trailing_stop=original / ATR 4% / max_positions=4 / ADX>=20 / min_hold_days=3 / 16종목
 - 최고 기록: +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
-- 다음 실험: 슈퍼사이클 유니버스 동적 갱신 로직
+- **다음 실험: 슈퍼사이클 유니버스 동적 갱신 로직** → 상세: `CONTEXT_supercycle.md`
 
-**일반 추세추종 (방향 A 최종 확정)**
-- 파일: `trend_backtest.py`
-- 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / **use_macd_rsi_exit=False** (실험M2)
+### 일반 추세추종 (M2 채택)
+- 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / use_macd_rsi_exit=False
 - 최고 기록 (8년): +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
-- 워크포워드 완료 (Q1): IS 샤프 0.99 / OOS 샤프 0.68 — 과적합 아님, 2024-11 트럼프 랠리+2025 관세 충격이 MDD 원인
-- **다음 작업: bear filter MA50 → MA200 교체 검증 (OOS MDD -42.8% 완화 목적)**
+- **다음 실험: bear filter MA50 → MA200 교체 검증** → 상세: `CONTEXT_trend.md`
