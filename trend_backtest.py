@@ -510,24 +510,21 @@ if __name__ == "__main__":
         use_macd_rsi_exit=False,
     )
 
-    # N 시리즈: 상관관계 집중도 제한 스윕
+    # Q 시리즈: bear_filter MA50 vs MA200 비교
     results = []
     spy_curve = None
 
     experiments = [
-        dict(sector_max=None, corr_max=None,  label='N0 기준 (제한없음)'),
-        dict(sector_max=1,    corr_max=None,  label='N1-A 섹터 최대1개'),
-        dict(sector_max=2,    corr_max=None,  label='N1-B 섹터 최대2개'),
-        dict(sector_max=None, corr_max=0.70,  label='N2-A 상관계수 0.70'),
-        dict(sector_max=None, corr_max=0.60,  label='N2-B 상관계수 0.60'),
-        dict(sector_max=2,    corr_max=0.70,  label='N3 섹터2+상관0.70'),
+        dict(spy_ma_period=50,  label='Q0 기준 MA50 (M2)'),
+        dict(spy_ma_period=200, label='Q1 MA200'),
     ]
 
     for exp in experiments:
         label = exp.pop('label')
+        params = {**COMMON, **exp}
         print(f"\n[{label}]")
         p = PortfolioManager(CONFIG['initial_capital'])
-        run_dynamic_backtest(price_data, p, **COMMON, **exp)
+        run_dynamic_backtest(price_data, p, **params)
         m, ec, sc = compute_metrics(p, price_data)
         m['label'] = label
         print_metrics(m)
@@ -536,4 +533,4 @@ if __name__ == "__main__":
             spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="N 시리즈 — 상관관계 집중도 제한 비교 (8Y)")
+                    title="Q 시리즈 — bear filter MA50 vs MA200 (8Y)")

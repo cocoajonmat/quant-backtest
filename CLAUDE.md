@@ -34,8 +34,15 @@ python trend_backtest.py  # 일반 추세추종
 - +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
 - NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA50 block / ATR 4% / heat_cap=10% / max_pos=4 / MACD제거
 
-**다음 작업 (일반 추세추종):** bear filter MA50 → MA200 교체 검증 (워크포워드 OOS MDD -42.8% 원인 대응)
+**다음 작업 (일반 추세추종):** 진입 품질 강화 — 52주 신고가 / 거래량 서지 조건 추가
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
+
+## 데이터 관리 규칙 (중요)
+
+**표준 CSV 상태:** git commit `d3abfb4` — 2018-03-12 ~ 2026-05-07, 트레이딩 시작 2019-03-13
+- `load_data(period_years=8)` 기준. 모든 실험은 이 CSV 기준으로 비교한다.
+- **절대 period_years를 9 이상으로 올리지 말 것** — CSV 재다운로드가 발생해 데이터 기준이 깨짐
+- 워크포워드 등 다른 스크립트 실행 후 CSV가 바뀐 것 같으면: `git checkout d3abfb4 -- data/`
 
 ## 코드 파일
 

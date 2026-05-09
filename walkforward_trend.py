@@ -348,8 +348,8 @@ if __name__ == "__main__":
     NDX100 = get_nasdaq100_tickers()
     CONFIG['max_positions'] = 4
 
-    # 전체 데이터 한 번만 로드 (워밍업 포함 9년치)
-    price_data = load_data(NDX100, period_years=9)
+    # 전체 데이터 한 번만 로드 (표준 CSV 사용 — period_years=9로 올리면 CSV 재다운로드 발생하여 데이터 기준이 깨짐)
+    price_data = load_data(NDX100, period_years=8)
 
     # ── A. In-Sample 단독 ──
     is_m, is_ec, is_spy, is_portfolio = run_segment(
