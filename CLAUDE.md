@@ -21,7 +21,7 @@ python backtest.py
 pip install yfinance pandas numpy matplotlib
 ```
 
-## 프로젝트 현황 (2026-05-08 기준)
+## 프로젝트 현황 (2026-05-09 기준)
 
 미국 주식 추세추종 스윙 트레이딩 백테스팅 시스템. 슈퍼사이클 종목(최근 5년 5배+ 상승) 위주로 다중 팩터 점수화 후 분할 매수/매도.
 
@@ -47,7 +47,8 @@ pip install yfinance pandas numpy matplotlib
 
 **다음 작업:**
 - **슈퍼사이클**: 유니버스 동적 갱신 로직 — 반기/분기마다 테마 재검토
-- **일반 추세추종**: 방향 B (터틀 스타일), 상관관계 집중도 제한 — CONTEXT_trend.md 참고
+- **일반 추세추종**: 방향 B (터틀 스타일) — ATR 1~2%, 타이트 손절, max_positions 20~30 / CONTEXT_trend.md 참고
+  - 세계 표준 비교 체크리스트 전 항목 검증 완료 (N 시리즈: 상관계수 제한은 NDX100 구조상 역효과, 기준 유지)
 
 ## 코드 구조
 
