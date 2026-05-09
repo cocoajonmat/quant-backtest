@@ -16,7 +16,7 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 | 전략 | 파일 | 현황 |
 |------|------|------|
 | 슈퍼사이클 추세추종 | [CONTEXT_supercycle.md](CONTEXT_supercycle.md) | 실험21 완료, 샤프 1.76 달성 |
-| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 실험K2 완료, 샤프 1.16 달성 |
+| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 방향A(M2) 최종 확정, 샤프 1.17 / 방향B 포기 완료 |
 
 ---
 
@@ -27,9 +27,9 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 - 최고 기록: +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - 다음 실험: 슈퍼사이클 유니버스 동적 갱신 로직
 
-**일반 추세추종 (방향 A 진행 중)**
+**일반 추세추종 (방향 A 최종 확정)**
 - 파일: `trend_backtest.py`
 - 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / **use_macd_rsi_exit=False** (실험M2)
 - 최고 기록 (8년): +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
-- 세계 표준 비교 항목 전부 검증 완료 (N 시리즈: 상관계수 제한은 NDX100 구조상 역효과)
-- 다음 실험: 방향 B (터틀 스타일) — ATR 1~2%, 타이트 손절, max_positions 20~30
+- 방향B (채널 돌파 터틀 스타일) 검증 완료 → 방향A 대비 수익률 3분의 1, 방향B 포기 확정 (O/P 시리즈)
+- **다음 작업: 슈퍼사이클 동적 유니버스 갱신 로직**
