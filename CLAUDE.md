@@ -11,6 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 일반 추세추종 실험 → `CONTEXT_trend.md`
 - 오래된 실험 로그(archived) → `CONTEXT_trend_archive.md`, `CONTEXT_supercycle_archive.md`
 
+**아카이브 규칙:** /done 실행 시, 세션에서 완료된 실험 로그를 즉시 archive 파일로 이동한다.
+현재 채택 파라미터 요약과 다음 실험 목록은 CONTEXT 파일에 유지하고, 실험 상세 로그만 archive로 옮긴다.
+
 ## 실행
 
 ```powershell
