@@ -30,10 +30,12 @@ python trend_backtest.py  # 일반 추세추종
 - +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
 - NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA50 block / ATR 4% / heat_cap=10% / max_pos=4 / MACD제거
 
-**다음 작업:** 슈퍼사이클 동적 유니버스 갱신 로직
+**다음 작업 (일반 추세추종):** bear filter MA50 → MA200 교체 검증 (워크포워드 OOS MDD -42.8% 원인 대응)
+**다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 코드 파일
 
 - `backtest.py` — 슈퍼사이클 백테스트 메인 (load_data, run_backtest, PortfolioManager, 지표함수)
 - `trend_backtest.py` — 일반 추세추종 방향A (get_dynamic_universe, run_dynamic_backtest)
 - `backtest_single.py` — 단일 종목 시각화 (_run_multi.py subprocess로 yfinance 격리)
+- `walkforward_trend.py` — 일반 추세추종 워크포워드 테스트 (M2 파라미터, IS 2019~2022 / OOS 2023~2026)
