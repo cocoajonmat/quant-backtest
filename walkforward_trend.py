@@ -1,7 +1,7 @@
 """
-워크포워드 테스트 — 일반 추세추종 (M2 파라미터)
+워크포워드 테스트 — 일반 추세추종 (R6-A 파라미터)
 ================================================
-목적: 실험M2 채택 파라미터가 과적합인지 아닌지 검증.
+목적: 실험R6-A 채택 파라미터가 과적합인지 아닌지 검증.
 
 구간 분리:
   In-Sample  (IS) : 2019-01-01 ~ 2022-12-31  (4년, 파라미터 선택 기간)
@@ -40,7 +40,7 @@ plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
 # ─────────────────────────────────────────────
-# M2 채택 파라미터 (고정)
+# R6-A 채택 파라미터 (고정)
 # ─────────────────────────────────────────────
 BEST_PARAMS = dict(
     top_n=5,
@@ -64,6 +64,8 @@ BEST_PARAMS = dict(
     use_macd_rsi_exit=False,
     sector_max=None,
     corr_max=None,
+    require_52w_high=True,
+    w52_pct=0.060,
 )
 
 IS_START  = '2019-01-01'
@@ -191,7 +193,7 @@ def run_oos_chained(price_data_full, is_final_equity, verbose=True):
 def print_comparison_table(is_m, oos_m, oos_chain_m):
     """IS vs OOS 비교표 출력."""
     print("\n" + "="*75)
-    print("  워크포워드 비교 요약 -- 일반 추세추종 M2")
+    print("  워크포워드 비교 요약 -- 일반 추세추종 R6-A")
     print("="*75)
     print(f"  {'지표':<20} {'IS (4년)':>12} {'OOS 독립 (3.3년)':>16} {'OOS 연속':>12}  판정")
     print("  " + "-"*72)
@@ -257,7 +259,7 @@ def print_comparison_table(is_m, oos_m, oos_chain_m):
 def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy,
                      is_m, oos_m, oos_chain_m):
     fig, axes = plt.subplots(2, 2, figsize=(18, 11))
-    fig.suptitle("워크포워드 테스트 - 일반 추세추종 (M2 파라미터)", fontsize=13, fontweight='bold')
+    fig.suptitle("워크포워드 테스트 - 일반 추세추종 (R6-A 파라미터)", fontsize=13, fontweight='bold')
 
     # ── 차트 1: IS 자산 곡선 ──
     ax = axes[0, 0]
@@ -338,9 +340,88 @@ def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy
     plt.show()
 
 
+def load_vix_data(period_years=8):
+    """VIX 데이터 로드 (^VIX 티커)."""
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    end = datetime.today()
+    start = end - timedelta(days=period_years * 365 + 60)
+    vix_csv = os.path.join("data", "VIX.csv")
+    if os.path.exists(vix_csv):
+        df = pd.read_csv(vix_csv, index_col=0, parse_dates=True)
+        if len(df) >= period_years * 240:
+            print("  VIX 캐시 로드 완료")
+            return df
+    print("  VIX 다운로드 중...")
+    df = yf.download("^VIX", start=start, end=end, auto_adjust=True, progress=False)
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df.xs("^VIX", axis=1, level=1)
+    df.to_csv(vix_csv)
+    return df
+
+
+def _run_one_variant(price_data, label, overrides, start, end, vix_df=None):
+    """단일 옵션 구간 실행 → 핵심 지표 반환."""
+    params = {**BEST_PARAMS, **overrides}
+    if vix_df is not None:
+        params['vix_data'] = vix_df.loc[:end]
+    pd_sliced = slice_price_data(price_data, start, end)
+    CONFIG['max_positions'] = 4
+    port = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(pd_sliced, port, **params)
+
+    ec_raw = pd.DataFrame(port.equity_curve).set_index('date')
+    ec_raw.index = pd.to_datetime(ec_raw.index)
+    ec = ec_raw.loc[start:end]
+    if len(ec) == 0:
+        return None
+
+    start_eq = ec['equity'].iloc[0]
+    final_eq  = ec['equity'].iloc[-1]
+    spy_df = pd_sliced[bt.BENCHMARK]['Close']
+    spy_r  = (spy_df.loc[ec.index[-1]] / spy_df.loc[ec.index[0]] - 1) * 100
+    total_r = (final_eq / start_eq - 1) * 100
+    mdd = ((ec['equity'] - ec['equity'].cummax()) / ec['equity'].cummax()).min() * 100
+    dr  = ec['equity'].pct_change().dropna()
+    sharpe = (dr.mean() * 252 - 0.04) / (dr.std() * np.sqrt(252))
+    return {"label": label, "total_r": total_r, "spy_excess": total_r - spy_r,
+            "mdd": mdd, "sharpe": sharpe}
+
+
+def run_bear_filter_comparison(price_data, vix_df):
+    """
+    IS + OOS 구간 모두에서 bear filter 옵션 비교.
+    목적: SPY 초과수익 & MDD 균형을 잡는 최적 bear filter 탐색.
+    """
+    variants = [
+        ("R6-A (MA50 block)",   dict(bear_filter='block',     spy_ma_period=50,  vix_threshold=30)),
+        ("bear=none",           dict(bear_filter='none',      spy_ma_period=50,  vix_threshold=30)),
+        ("MA200 block",         dict(bear_filter='block',     spy_ma_period=200, vix_threshold=30)),
+        ("VIX>30 block",        dict(bear_filter='vix',       spy_ma_period=50,  vix_threshold=30)),
+        ("VIX>25 block",        dict(bear_filter='vix',       spy_ma_period=50,  vix_threshold=25)),
+        ("MA50 OR VIX>30",      dict(bear_filter='ma_or_vix', spy_ma_period=50,  vix_threshold=30)),
+        ("MA50 5일확인",         dict(bear_filter='block',     spy_ma_period=50,  vix_threshold=30, ma_confirm_days=5)),
+        ("MA50 10일확인",        dict(bear_filter='block',     spy_ma_period=50,  vix_threshold=30, ma_confirm_days=10)),
+    ]
+
+    for segment, start, end in [("IS (2019~2022)", IS_START, IS_END),
+                                  ("OOS (2023~2026)", OOS_START, OOS_END)]:
+        print("\n" + "="*72)
+        print(f"  Bear Filter 비교 [{segment}]")
+        print("="*72)
+        print(f"  {'옵션':<24} {'수익률':>8} {'SPY초과':>9} {'MDD':>8} {'샤프':>7}")
+        print("  " + "-"*65)
+        for label, overrides in variants:
+            r = _run_one_variant(price_data, label, overrides, start, end, vix_df)
+            if r:
+                print(f"  {label:<24} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+8.1f}%p"
+                      f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}")
+        print("="*72)
+
+
 if __name__ == "__main__":
     print("="*60)
-    print("  워크포워드 테스트 - 일반 추세추종 (M2 파라미터)")
+    print("  워크포워드 테스트 - 일반 추세추종 (R6-A 파라미터)")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
@@ -350,6 +431,7 @@ if __name__ == "__main__":
 
     # 전체 데이터 한 번만 로드 (표준 CSV 사용 — period_years=9로 올리면 CSV 재다운로드 발생하여 데이터 기준이 깨짐)
     price_data = load_data(NDX100, period_years=8)
+    vix_df = load_vix_data(period_years=8)
 
     # ── A. In-Sample 단독 ──
     is_m, is_ec, is_spy, is_portfolio = run_segment(
@@ -368,6 +450,9 @@ if __name__ == "__main__":
 
     # ── 비교표 출력 ──
     print_comparison_table(is_m, oos_m, oos_chain_m)
+
+    # ── Bear Filter IS/OOS 전체 비교 ──
+    run_bear_filter_comparison(price_data, vix_df)
 
     # ── 시각화 ──
     plot_walkforward(

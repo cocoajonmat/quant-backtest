@@ -234,7 +234,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          sector_max=None,
                          corr_max=None, corr_window=180,
                          require_52w_high=False, w52_pct=0.05,
-                         require_vol_surge=False, vol_surge_ratio=1.5, vol_surge_days=5):
+                         require_vol_surge=False, vol_surge_ratio=1.5, vol_surge_days=5,
+                         vix_data=None, vix_threshold=30,
+                         ma_confirm_days=0):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -264,6 +266,19 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
       False — 제한 없음 (기존)
       True  — 최근 vol_surge_days일 내 거래량이 20일 평균의 vol_surge_ratio배 이상인
               날이 1일 이상 있어야 진입 허용 (돌파 확인)
+
+    vix_data:
+      None  — VIX 기반 필터 없음 (기존)
+      dict  — {'^VIX': DataFrame} 형태. bear_filter='vix'일 때 사용.
+              VIX >= vix_threshold 이면 진입 차단.
+
+    bear_filter 옵션 추가:
+      'vix'      — VIX >= vix_threshold 시 진입 차단 (MA 무관)
+      'ma_or_vix'— MA50 아래 OR VIX >= threshold 중 하나라도 해당되면 차단
+
+    ma_confirm_days:
+      0   — 기존: MA 이탈 즉시 차단
+      N>0 — MA 아래로 N일 연속 이탈했을 때만 차단 (노이즈 완충)
     """
     from datetime import timedelta
 
@@ -274,6 +289,7 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     pending_tranches = {}
     current_universe = []
     last_universe_update = None
+    ma_below_streak = 0  # MA 연속 이탈일 수 (ma_confirm_days용)
 
     print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
@@ -285,13 +301,41 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
             if date in df.index:
                 price_snapshot[ticker] = df.loc[date, 'Close']
 
-        # SPY MA 상태
+        # Bear filter 판단
         spy_above_ma = True
-        if bear_filter != 'none':
+        if bear_filter == 'none':
+            spy_above_ma = True
+        elif bear_filter == 'vix':
+            # VIX 기반: VIX >= threshold면 차단
+            spy_above_ma = True
+            if vix_data is not None and date in vix_data.index:
+                vix_val = vix_data.loc[date, 'Close']
+                if vix_val >= vix_threshold:
+                    spy_above_ma = False
+        elif bear_filter in ('block', 'ma_or_vix'):
             spy_idx = benchmark_df.index.get_loc(date)
             if spy_idx >= spy_ma_period:
                 spy_ma = benchmark_df['Close'].iloc[spy_idx - spy_ma_period:spy_idx].mean()
-                spy_above_ma = benchmark_df['Close'].iloc[spy_idx] >= spy_ma
+                ma_ok = benchmark_df['Close'].iloc[spy_idx] >= spy_ma
+            else:
+                ma_ok = True
+
+            # MA 연속 이탈 확인
+            if ma_confirm_days > 0:
+                if not ma_ok:
+                    ma_below_streak += 1
+                else:
+                    ma_below_streak = 0
+                ma_blocked = ma_below_streak >= ma_confirm_days
+            else:
+                ma_blocked = not ma_ok
+
+            if bear_filter == 'ma_or_vix' and vix_data is not None and date in vix_data.index:
+                vix_val = vix_data.loc[date, 'Close']
+                vix_blocked = vix_val >= vix_threshold
+                spy_above_ma = not (ma_blocked or vix_blocked)
+            else:
+                spy_above_ma = not ma_blocked
 
         # 유니버스 업데이트 (월 1회)
         if last_universe_update is None or (date - last_universe_update).days >= 21:
@@ -508,59 +552,30 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
 
-    from backtest import get_sp500_tickers
-
     NDX100 = get_nasdaq100_tickers()
-    SP500  = get_sp500_tickers()
 
     print("="*60)
-    print("  S 시리즈 - 유니버스 다양화: NDX100 → S&P500")
-    print("  S0: NDX100 기준(R6-A) / S1: SP500 top5 / S2: SP500 top8")
+    print("  R6-A 채택 파라미터 검증 (8년)")
     print("="*60)
 
     CONFIG['max_positions'] = 4
+    price_data = load_data(NDX100, period_years=8)
 
-    # 채택 파라미터 (R6-A 기준)
-    COMMON = dict(
-        adx_min=20,
+    p = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p,
+        top_n=5, adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
         bear_filter='block', spy_ma_period=50,
-        exit_mode='hybrid',
-        stop_mode='pct12',
+        exit_mode='hybrid', stop_mode='pct12',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
-        portfolio_heat_cap=0.10,
-        entry_mode='score',
-        use_macd_rsi_exit=False,
-        require_vol_surge=False,
+        portfolio_heat_cap=0.10, entry_mode='score',
+        use_macd_rsi_exit=False, require_vol_surge=False,
         require_52w_high=True, w52_pct=0.060,
     )
-
-    results = []
-    spy_curve = None
-
-    experiments = [
-        dict(label='S0 NDX100 top5 (기준)',  tickers=NDX100, top_n=5),
-        dict(label='S1 SP500 top5',           tickers=SP500,  top_n=5),
-        dict(label='S2 SP500 top8',           tickers=SP500,  top_n=8),
-    ]
-
-    for exp in experiments:
-        label   = exp.pop('label')
-        tickers = exp.pop('tickers')
-        params  = {**COMMON, **exp}
-
-        print(f"\n[{label}]")
-        price_data = load_data(tickers, period_years=8)
-        p = PortfolioManager(CONFIG['initial_capital'])
-        run_dynamic_backtest(price_data, p, **params)
-        m, ec, sc = compute_metrics(p, price_data)
-        m['label'] = label
-        print_metrics(m)
-        results.append({"label": label, "ec": ec, "metrics": m})
-        if spy_curve is None:
-            spy_curve = sc
-
-    plot_comparison(results, spy_curve,
-                    title="S 시리즈 - 유니버스 다양화: NDX100 vs S&P500 (8Y)")
+    m, ec, sc = compute_metrics(p, price_data)
+    m['label'] = 'R6-A (채택)'
+    print_metrics(m)
+    plot_comparison([{"label": m['label'], "ec": ec, "metrics": m}], sc,
+                    title="R6-A 채택 파라미터 검증 (8Y)")

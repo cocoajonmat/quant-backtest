@@ -30,4 +30,4 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 ### 일반 추세추종 (R6-A 채택)
 - 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / use_macd_rsi_exit=False / **52주신고가 6% 필터**
 - 최고 기록 (8년): +1062.4% / CAGR 40.9% / MDD -18.2% / 샤프 1.29 (SPY +189.9%)
-- **다음 실험: 워크포워드 재실행 (R6-A 기준, 52주 신고가 필터 포함 OOS 검증)** → 상세: `CONTEXT_trend.md`
+- **다음 실험: T1 — bear=none + VIX 동적 포지션 축소** (OOS SPY 초과수익 회복 목적) → 상세: `CONTEXT_trend.md`
