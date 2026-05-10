@@ -22,7 +22,7 @@ python backtest.py        # 슈퍼사이클
 python trend_backtest.py  # 일반 추세추종
 ```
 
-## 프로젝트 현황 (2026-05-09 기준)
+## 프로젝트 현황 (2026-05-10 기준)
 
 미국 주식 추세추종 스윙 트레이딩 백테스팅 시스템.
 
@@ -30,11 +30,11 @@ python trend_backtest.py  # 일반 추세추종
 - +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - hybrid / MA200 block / pct12 / trailing_stop=original / ATR 4% / max_pos=4 / ADX>=20 / min_hold_days=3 / 16종목
 
-**일반 추세추종 (M2 채택, 8년)**
-- +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
-- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA50 block / ATR 4% / heat_cap=10% / max_pos=4 / MACD제거
+**일반 추세추종 (R6-A 채택, 8년)**
+- +1062.4% / CAGR 40.9% / MDD -18.2% / 샤프 1.29 (SPY +189.9%)
+- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA50 block / ATR 4% / heat_cap=10% / max_pos=4 / MACD제거 / 52주신고가 6% 필터
 
-**다음 작업 (일반 추세추종):** 진입 품질 강화 — 52주 신고가 / 거래량 서지 조건 추가
+**다음 작업 (일반 추세추종):** 유니버스 다양화 — NDX100 → Russell 1000 성장주 or S&P500 모멘텀 확장
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)

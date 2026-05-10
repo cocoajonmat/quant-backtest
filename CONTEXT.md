@@ -16,7 +16,7 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 | 전략 | 파일 | 현황 |
 |------|------|------|
 | 슈퍼사이클 추세추종 | [CONTEXT_supercycle.md](CONTEXT_supercycle.md) | 실험21 완료, 샤프 1.76 달성 |
-| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | 방향A(M2) 최종 확정, 샤프 1.17 / Q2 완료 (MA200 기각) |
+| 일반 추세추종 | [CONTEXT_trend.md](CONTEXT_trend.md) | R6-A 채택, 샤프 1.29 / 52주신고가 6% 필터 추가 |
 
 ---
 
@@ -27,7 +27,7 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 - 최고 기록: +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - **다음 실험: 슈퍼사이클 유니버스 동적 갱신 로직** → 상세: `CONTEXT_supercycle.md`
 
-### 일반 추세추종 (M2 채택)
-- 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / use_macd_rsi_exit=False
-- 최고 기록 (8년): +909.7% / CAGR 38.1% / MDD -20.7% / 샤프 1.17 (SPY +189.9%)
-- **다음 실험: 진입 품질 강화 (52주 신고가 / 거래량 서지 조건)** → 상세: `CONTEXT_trend.md`
+### 일반 추세추종 (R6-A 채택)
+- 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA50 / ATR 4% / heat_cap=10% / max_positions=4 / use_macd_rsi_exit=False / **52주신고가 6% 필터**
+- 최고 기록 (8년): +1062.4% / CAGR 40.9% / MDD -18.2% / 샤프 1.29 (SPY +189.9%)
+- **다음 실험: 유니버스 다양화 (NDX100 → Russell 1000 성장주 or S&P500 모멘텀)** → 상세: `CONTEXT_trend.md`

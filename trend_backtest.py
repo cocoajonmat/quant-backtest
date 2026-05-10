@@ -232,7 +232,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          entry_mode='score',
                          use_macd_rsi_exit=True,
                          sector_max=None,
-                         corr_max=None, corr_window=180):
+                         corr_max=None, corr_window=180,
+                         require_52w_high=False, w52_pct=0.05,
+                         require_vol_surge=False, vol_surge_ratio=1.5, vol_surge_days=5):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -253,6 +255,15 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     corr_max:
       None  — 제한 없음 (기존)
       float — 기존 포지션과의 corr_window일 상관계수가 이 값 이상이면 진입 차단
+
+    require_52w_high:
+      False — 제한 없음 (기존)
+      True  — 현재가가 52주 신고가의 (1 - w52_pct) 이상이어야 진입 허용
+
+    require_vol_surge:
+      False — 제한 없음 (기존)
+      True  — 최근 vol_surge_days일 내 거래량이 20일 평균의 vol_surge_ratio배 이상인
+              날이 1일 이상 있어야 진입 허용 (돌파 확인)
     """
     from datetime import timedelta
 
@@ -386,6 +397,19 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                 else:  # 'universe_only'
                     strength = 'strong'
 
+                # 진입 품질 필터: 52주 신고가 근접 AND 조건
+                if require_52w_high and idx >= 252:
+                    high_52w = df['Close'].iloc[idx - 252:idx].max()
+                    if df['Close'].iloc[idx] < high_52w * (1 - w52_pct):
+                        continue
+
+                # 진입 품질 필터: 최근 거래량 서지 확인 AND 조건
+                if require_vol_surge and idx >= 20:
+                    avg_vol = df['Volume'].iloc[idx - 20:idx].mean()
+                    recent_vols = df['Volume'].iloc[max(0, idx - vol_surge_days + 1):idx + 1]
+                    if not (recent_vols >= avg_vol * vol_surge_ratio).any():
+                        continue
+
                 if bear_filter == 'block' and not spy_above_ma:
                     continue
 
@@ -487,9 +511,8 @@ if __name__ == "__main__":
     NDX100 = get_nasdaq100_tickers()
 
     print("="*60)
-    print("  N 시리즈 -- 상관관계 집중도 제한 비교")
-    print("  N0: 기준(제한없음) / N1-A: 섹터1개 / N1-B: 섹터2개")
-    print("  N2-A: 상관0.7 / N2-B: 상관0.6 / N3: 섹터2+상관0.7")
+    print("  R6 시리즈 - 52주 신고가 6~8% 세밀 스윕")
+    print("  R0: 기준 / R5-F: 7% / R6-A~E: 6/6.5/7/7.5/8%")
     print("="*60)
 
     CONFIG['max_positions'] = 4
@@ -508,15 +531,20 @@ if __name__ == "__main__":
         portfolio_heat_cap=0.10,
         entry_mode='score',
         use_macd_rsi_exit=False,
+        require_vol_surge=False,
     )
 
-    # Q 시리즈: bear_filter MA50 vs MA200 비교
+    # R6 시리즈: 6~8% 세밀 스윕
     results = []
     spy_curve = None
 
     experiments = [
-        dict(spy_ma_period=50,  label='Q0 기준 MA50 (M2)'),
-        dict(spy_ma_period=200, label='Q1 MA200'),
+        dict(label='R0 기준 (M2)',   require_52w_high=False),
+        dict(label='R6-A 6.0%',      require_52w_high=True, w52_pct=0.060),
+        dict(label='R6-B 6.5%',      require_52w_high=True, w52_pct=0.065),
+        dict(label='R6-C 7.0%',      require_52w_high=True, w52_pct=0.070),
+        dict(label='R6-D 7.5%',      require_52w_high=True, w52_pct=0.075),
+        dict(label='R6-E 8.0%',      require_52w_high=True, w52_pct=0.080),
     ]
 
     for exp in experiments:
@@ -533,4 +561,4 @@ if __name__ == "__main__":
             spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="Q 시리즈 — bear filter MA50 vs MA200 (8Y)")
+                    title="R6 시리즈 - 52주 신고가 6~8% 세밀 스윕 (8Y)")
