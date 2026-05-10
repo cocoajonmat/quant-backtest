@@ -236,7 +236,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          require_52w_high=False, w52_pct=0.05,
                          require_vol_surge=False, vol_surge_ratio=1.5, vol_surge_days=5,
                          vix_data=None, vix_threshold=30,
-                         ma_confirm_days=0):
+                         ma_confirm_days=0,
+                         vix_sizing_data=None):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -279,6 +280,14 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     ma_confirm_days:
       0   — 기존: MA 이탈 즉시 차단
       N>0 — MA 아래로 N일 연속 이탈했을 때만 차단 (노이즈 완충)
+
+    vix_sizing_data:
+      None  — VIX 동적 사이징 없음 (기존)
+      DataFrame — VIX 일별 종가 DataFrame. 진입 시 atr_risk_pct를 VIX 구간별 자동 조절:
+                  VIX < 20: atr_risk_pct 그대로
+                  VIX 20~30: atr_risk_pct × 0.75
+                  VIX 30~40: atr_risk_pct × 0.50
+                  VIX >= 40: atr_risk_pct × 0.25
     """
     from datetime import timedelta
 
@@ -465,13 +474,27 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                 if entry_price is None:
                     continue
 
+                # VIX 동적 사이징: 진입 시점 VIX에 따라 atr_risk_pct 조절
+                effective_atr_risk = atr_risk_pct
+                if vix_sizing_data is not None:
+                    vix_dates = vix_sizing_data.index
+                    past_vix = vix_dates[vix_dates <= date]
+                    if len(past_vix) > 0:
+                        vix_val = vix_sizing_data.loc[past_vix[-1], 'Close']
+                        if vix_val >= 40:
+                            effective_atr_risk = atr_risk_pct * 0.25
+                        elif vix_val >= 30:
+                            effective_atr_risk = atr_risk_pct * 0.50
+                        elif vix_val >= 20:
+                            effective_atr_risk = atr_risk_pct * 0.75
+
                 cap_override = None
                 if atr_sizing and idx >= 15:
                     atr = bt.calc_atr(df, idx)
                     stop_dist_pct = (atr * 2.5) / entry_price
                     if stop_dist_pct > 0:
                         current_eq = portfolio.total_equity(price_snapshot)
-                        cap_override = (current_eq * atr_risk_pct) / stop_dist_pct
+                        cap_override = (current_eq * effective_atr_risk) / stop_dist_pct
                         cap_override = max(200, min(cap_override, current_eq * atr_position_cap))
 
                 # 섹터 집중도 제한 (N1)
@@ -554,15 +577,17 @@ if __name__ == "__main__":
 
     NDX100 = get_nasdaq100_tickers()
 
-    print("="*60)
-    print("  R6-A 채택 파라미터 검증 (8년)")
-    print("="*60)
-
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    p = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p,
+    results = []
+
+    # ── R6-A (과거 채택, 비교용) ──
+    print("\n" + "="*60)
+    print("  [1/2] R6-A (과거 채택, 비교용)")
+    print("="*60)
+    p1 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p1,
         top_n=5, adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
@@ -571,11 +596,32 @@ if __name__ == "__main__":
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=20, min_hold_days=3,
         portfolio_heat_cap=0.10, entry_mode='score',
-        use_macd_rsi_exit=False, require_vol_surge=False,
-        require_52w_high=True, w52_pct=0.060,
+        use_macd_rsi_exit=False, require_52w_high=True, w52_pct=0.060,
     )
-    m, ec, sc = compute_metrics(p, price_data)
-    m['label'] = 'R6-A (채택)'
-    print_metrics(m)
-    plot_comparison([{"label": m['label'], "ec": ec, "metrics": m}], sc,
-                    title="R6-A 채택 파라미터 검증 (8Y)")
+    m1, ec1, sc = compute_metrics(p1, price_data)
+    m1['label'] = 'R6-A'
+    print_metrics(m1)
+    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
+
+    # ── T-Simple (신규 채택) ──
+    print("\n" + "="*60)
+    print("  [2/2] T-Simple (신규 채택)")
+    print("="*60)
+    p2 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p2,
+        top_n=5, adx_min=20,
+        momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
+        ret12_min=0.20,
+        bear_filter='block', spy_ma_period=50,
+        exit_mode='hybrid', stop_mode='pct12',
+        atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
+        trailing_stop='original', adx_threshold=0, min_hold_days=0,
+        portfolio_heat_cap=None, entry_mode='universe_only',
+        use_macd_rsi_exit=False, require_52w_high=False,
+    )
+    m2, ec2, _ = compute_metrics(p2, price_data)
+    m2['label'] = 'T-Simple'
+    print_metrics(m2)
+    results.append({"label": m2['label'], "ec": ec2, "metrics": m2})
+
+    plot_comparison(results, sc, title="R6-A vs T-Simple (8년 백테스트)")

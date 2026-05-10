@@ -30,11 +30,12 @@ python trend_backtest.py  # 일반 추세추종
 - +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - hybrid / MA200 block / pct12 / trailing_stop=original / ATR 4% / max_pos=4 / ADX>=20 / min_hold_days=3 / 16종목
 
-**일반 추세추종 (R6-A 채택, 8년)**
-- +1062.4% / CAGR 40.9% / MDD -18.2% / 샤프 1.29 (SPY +189.9%)
-- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA50 block / ATR 4% / heat_cap=10% / max_pos=4 / MACD제거 / 52주신고가 6% 필터
+**일반 추세추종 (T-Simple+MA200 채택, 워크포워드 기준)**
+- OOS (2023~2026): +297.8% / MDD -38.8% / 샤프 1.39 / SPY 초과 +227.2%p
+- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / entry=universe_only
+- R6-A 대비 제거: heat_cap / 52주신고가 / adx_threshold(진입) / min_hold / 5팩터점수 → OOS 과적합 노이즈였음
 
-**다음 작업 (일반 추세추종):** T1 실험 — bear=none + VIX 동적 포지션 축소 (VIX<20: 4%, 20~30: 3%, 30~40: 2%, >=40: 1%) / 8년 전체 → 워크포워드 순서로 검증
+**다음 작업 (일반 추세추종):** OOS MDD -38.8% 개선 탐색
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)

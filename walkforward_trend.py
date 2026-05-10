@@ -68,9 +68,39 @@ BEST_PARAMS = dict(
     w52_pct=0.060,
 )
 
-IS_START  = '2019-01-01'
-IS_END    = '2022-12-31'
-OOS_START = '2023-01-01'
+# ─────────────────────────────────────────────
+# 단순화 파라미터 (과적합 검증용)
+# 제거: portfolio_heat_cap / require_52w_high / min_hold_days / adx_threshold / entry_mode=score
+# 핵심만 유지: linreg 유니버스 + bear=MA50 + ATR sizing + hybrid exit
+# ─────────────────────────────────────────────
+SIMPLE_PARAMS = dict(
+    top_n=5,
+    adx_min=20,
+    momentum_mode='linreg',
+    linreg_gate=0.15,
+    linreg_window=90,
+    ret12_min=0.20,
+    bear_filter='block',
+    spy_ma_period=50,
+    exit_mode='hybrid',
+    stop_mode='pct12',
+    atr_sizing=True,
+    atr_risk_pct=0.04,
+    atr_position_cap=0.40,
+    trailing_stop='original',
+    adx_threshold=0,
+    min_hold_days=0,
+    portfolio_heat_cap=None,
+    entry_mode='universe_only',
+    use_macd_rsi_exit=False,
+    sector_max=None,
+    corr_max=None,
+    require_52w_high=False,
+)
+
+IS_START  = '2021-01-01'
+IS_END    = '2023-06-30'
+OOS_START = '2023-07-01'
 OOS_END   = '2026-05-09'
 
 
@@ -85,13 +115,15 @@ def slice_price_data(price_data, start, end):
     return sliced
 
 
-def run_segment(price_data_full, label, start, end, initial_capital, verbose=True):
+def run_segment(price_data_full, label, start, end, initial_capital, verbose=True, params=None):
     """특정 구간 백테스트 실행 → metrics, ec, spy_curve, portfolio 반환."""
+    if params is None:
+        params = BEST_PARAMS
     pd_sliced = slice_price_data(price_data_full, start, end)
 
     CONFIG['max_positions'] = 4
     portfolio = PortfolioManager(initial_capital)
-    run_dynamic_backtest(pd_sliced, portfolio, **BEST_PARAMS)
+    run_dynamic_backtest(pd_sliced, portfolio, **params)
 
     # equity_curve를 실제 구간(start ~ end)으로 재필터
     ec_raw = pd.DataFrame(portfolio.equity_curve).set_index('date')
@@ -360,9 +392,11 @@ def load_vix_data(period_years=8):
     return df
 
 
-def _run_one_variant(price_data, label, overrides, start, end, vix_df=None):
+def _run_one_variant(price_data, label, overrides, start, end, vix_df=None, base_params=None):
     """단일 옵션 구간 실행 → 핵심 지표 반환."""
-    params = {**BEST_PARAMS, **overrides}
+    if base_params is None:
+        base_params = BEST_PARAMS
+    params = {**base_params, **overrides}
     if vix_df is not None:
         params['vix_data'] = vix_df.loc[:end]
     pd_sliced = slice_price_data(price_data, start, end)
@@ -419,45 +453,71 @@ def run_bear_filter_comparison(price_data, vix_df):
         print("="*72)
 
 
+def print_simple_vs_r6a(r6a_is, r6a_oos, sim_is, sim_oos):
+    """단순화 vs R6-A 워크포워드 비교표."""
+    print("\n" + "="*80)
+    print("  단순화 vs R6-A 워크포워드 비교")
+    print("="*80)
+    print(f"  {'지표':<18} {'R6-A IS':>10} {'R6-A OOS':>10} {'단순화 IS':>10} {'단순화 OOS':>11}")
+    print("  " + "-"*75)
+
+    def row(name, key, is_excess=False):
+        if is_excess:
+            v1 = r6a_is['total_return']  - r6a_is['spy_return']
+            v2 = r6a_oos['total_return'] - r6a_oos['spy_return']
+            v3 = sim_is['total_return']  - sim_is['spy_return']
+            v4 = sim_oos['total_return'] - sim_oos['spy_return']
+        else:
+            v1, v2, v3, v4 = r6a_is[key], r6a_oos[key], sim_is[key], sim_oos[key]
+        print(f"  {name:<18} {v1:>+9.1f}  {v2:>+9.1f}  {v3:>+9.1f}  {v4:>+10.1f}")
+
+    row("수익률(%)",   "total_return")
+    row("SPY 초과(%p)", None, is_excess=True)
+    row("CAGR(%)",     "cagr")
+    row("MDD(%)",      "mdd")
+    row("샤프",        "sharpe")
+    row("승률(%)",     "win_rate")
+    print("="*80)
+
+    # OOS SPY 초과 기준 판정
+    r6a_excess  = r6a_oos['total_return'] - r6a_oos['spy_return']
+    sim_excess   = sim_oos['total_return'] - sim_oos['spy_return']
+    print(f"\n  OOS SPY 초과: R6-A {r6a_excess:+.1f}%p  /  단순화 {sim_excess:+.1f}%p")
+    if sim_excess > r6a_excess:
+        print("  → 단순화가 OOS에서 더 좋음 (과적합 레이어 제거 효과 확인)")
+    else:
+        print("  → R6-A 추가 레이어가 OOS에서도 유효 (과적합 아님)")
+    print("="*80)
+
+
 if __name__ == "__main__":
     print("="*60)
-    print("  워크포워드 테스트 - 일반 추세추종 (R6-A 파라미터)")
+    print("  bear filter MA50 vs MA200 비교 (R6-A / T-Simple)")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
 
     NDX100 = get_nasdaq100_tickers()
     CONFIG['max_positions'] = 4
-
-    # 전체 데이터 한 번만 로드 (표준 CSV 사용 — period_years=9로 올리면 CSV 재다운로드 발생하여 데이터 기준이 깨짐)
     price_data = load_data(NDX100, period_years=8)
-    vix_df = load_vix_data(period_years=8)
 
-    # ── A. In-Sample 단독 ──
-    is_m, is_ec, is_spy, is_portfolio = run_segment(
-        price_data, "In-Sample", IS_START, IS_END, CONFIG['initial_capital']
-    )
+    variants = [
+        ("R6-A  / MA50",    BEST_PARAMS,   dict(bear_filter='block', spy_ma_period=50)),
+        ("R6-A  / MA200",   BEST_PARAMS,   dict(bear_filter='block', spy_ma_period=200)),
+        ("Simple/ MA50",    SIMPLE_PARAMS, dict(bear_filter='block', spy_ma_period=50)),
+        ("Simple/ MA200",   SIMPLE_PARAMS, dict(bear_filter='block', spy_ma_period=200)),
+    ]
 
-    # ── B. Out-of-Sample 독립 ($10,000 시작) ──
-    oos_m, oos_ec, oos_spy, oos_portfolio = run_segment(
-        price_data, "OOS 독립", OOS_START, OOS_END, CONFIG['initial_capital']
-    )
+    print(f"\n  {'전략':<18} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
+          f"  {'OOS 수익':>8} {'OOS SPY초과':>11} {'OOS MDD':>8} {'OOS 샤프':>8}")
+    print("  " + "-"*105)
 
-    # ── C. OOS 연속 (IS 최종 자본 이어받기) ──
-    oos_chain_m, oos_chain_ec, oos_chain_spy, _ = run_oos_chained(
-        price_data, is_final_equity=is_m['final_equity']
-    )
+    for label, base, overrides in variants:
+        ri = _run_one_variant(price_data, label, overrides, IS_START,  IS_END,  base_params=base)
+        ro = _run_one_variant(price_data, label, overrides, OOS_START, OOS_END, base_params=base)
+        if ri and ro:
+            print(f"  {label:<18}"
+                  f"  {ri['total_r']:>+7.1f}%  {ri['spy_excess']:>+9.1f}%p  {ri['mdd']:>7.1f}%  {ri['sharpe']:>7.2f}"
+                  f"  {ro['total_r']:>+7.1f}%  {ro['spy_excess']:>+10.1f}%p  {ro['mdd']:>7.1f}%  {ro['sharpe']:>7.2f}")
 
-    # ── 비교표 출력 ──
-    print_comparison_table(is_m, oos_m, oos_chain_m)
-
-    # ── Bear Filter IS/OOS 전체 비교 ──
-    run_bear_filter_comparison(price_data, vix_df)
-
-    # ── 시각화 ──
-    plot_walkforward(
-        is_ec, is_spy,
-        oos_ec, oos_spy,
-        oos_chain_ec, oos_chain_spy,
-        is_m, oos_m, oos_chain_m,
-    )
+    print("  " + "-"*105)
