@@ -508,19 +508,21 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
 
+    from backtest import get_sp500_tickers
+
     NDX100 = get_nasdaq100_tickers()
+    SP500  = get_sp500_tickers()
 
     print("="*60)
-    print("  R6 시리즈 - 52주 신고가 6~8% 세밀 스윕")
-    print("  R0: 기준 / R5-F: 7% / R6-A~E: 6/6.5/7/7.5/8%")
+    print("  S 시리즈 - 유니버스 다양화: NDX100 → S&P500")
+    print("  S0: NDX100 기준(R6-A) / S1: SP500 top5 / S2: SP500 top8")
     print("="*60)
 
     CONFIG['max_positions'] = 4
-    price_data = load_data(NDX100, period_years=8)
 
-    # 채택 파라미터 (M2 기준)
+    # 채택 파라미터 (R6-A 기준)
     COMMON = dict(
-        top_n=5, adx_min=20,
+        adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
         bear_filter='block', spy_ma_period=50,
@@ -532,25 +534,25 @@ if __name__ == "__main__":
         entry_mode='score',
         use_macd_rsi_exit=False,
         require_vol_surge=False,
+        require_52w_high=True, w52_pct=0.060,
     )
 
-    # R6 시리즈: 6~8% 세밀 스윕
     results = []
     spy_curve = None
 
     experiments = [
-        dict(label='R0 기준 (M2)',   require_52w_high=False),
-        dict(label='R6-A 6.0%',      require_52w_high=True, w52_pct=0.060),
-        dict(label='R6-B 6.5%',      require_52w_high=True, w52_pct=0.065),
-        dict(label='R6-C 7.0%',      require_52w_high=True, w52_pct=0.070),
-        dict(label='R6-D 7.5%',      require_52w_high=True, w52_pct=0.075),
-        dict(label='R6-E 8.0%',      require_52w_high=True, w52_pct=0.080),
+        dict(label='S0 NDX100 top5 (기준)',  tickers=NDX100, top_n=5),
+        dict(label='S1 SP500 top5',           tickers=SP500,  top_n=5),
+        dict(label='S2 SP500 top8',           tickers=SP500,  top_n=8),
     ]
 
     for exp in experiments:
-        label = exp.pop('label')
-        params = {**COMMON, **exp}
+        label   = exp.pop('label')
+        tickers = exp.pop('tickers')
+        params  = {**COMMON, **exp}
+
         print(f"\n[{label}]")
+        price_data = load_data(tickers, period_years=8)
         p = PortfolioManager(CONFIG['initial_capital'])
         run_dynamic_backtest(price_data, p, **params)
         m, ec, sc = compute_metrics(p, price_data)
@@ -561,4 +563,4 @@ if __name__ == "__main__":
             spy_curve = sc
 
     plot_comparison(results, spy_curve,
-                    title="R6 시리즈 - 52주 신고가 6~8% 세밀 스윕 (8Y)")
+                    title="S 시리즈 - 유니버스 다양화: NDX100 vs S&P500 (8Y)")

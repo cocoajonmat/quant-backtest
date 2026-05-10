@@ -49,6 +49,72 @@ SECTOR_ETF_MAP = {
 SECTOR_ETFS = list(set(SECTOR_ETF_MAP.values()))  # ["XLK", "XLU", "XLI", "XLF"]
 
 
+def get_sp500_tickers():
+    """S&P500 구성종목 반환 (2025년 기준 하드코딩 — 연 1회 수동 업데이트)."""
+    tickers = [
+        # 정보기술
+        "AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "ACN", "IBM", "INTU", "QCOM",
+        "AMD", "TXN", "ADI", "AMAT", "LRCX", "KLAC", "MCHP", "CDNS", "SNPS", "ANSS",
+        "FTNT", "PANW", "CRWD", "ZS", "GDDY", "CTSH", "IT", "EPAM", "OKTA", "DDOG",
+        "MU", "NTAP", "WDC", "HPQ", "HPE", "DELL", "STX", "CDW", "ANET", "JNPR",
+        "GLW", "TEL", "APH", "KEYS", "TDY", "FFIV", "AKAM", "CSCO", "MSI", "SWKS",
+        "QRVO", "NXPI", "ON", "TER", "MPWR", "WOLF",
+        # 커뮤니케이션 서비스
+        "META", "GOOGL", "GOOG", "NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS",
+        "CHTR", "PARA", "WBD", "FOXA", "FOX", "OMC", "IPG", "EA", "TTWO", "MTCH",
+        "ZM", "SNAP", "PINS", "LYV",
+        # 임의소비재
+        "AMZN", "TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "TJX", "BKNG", "MAR",
+        "HLT", "GM", "F", "APTV", "LEN", "DHI", "PHM", "NVR", "POOL", "RH",
+        "ORLY", "AZO", "AAP", "GPC", "ULTA", "LULU", "TPR", "RL", "PVH", "HAS",
+        "MAT", "YUM", "DRI", "CMG", "DPZ", "MKC", "CCL", "RCL", "NCLH",
+        "EXPE", "ABNB", "MELI", "EBAY", "ETSY", "W", "RVTY",
+        # 필수소비재
+        "WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ", "KHC", "GIS",
+        "K", "CAG", "CPB", "SJM", "MKC", "HRL", "TSN", "KR", "SYY", "USFD",
+        "MNST", "KDP", "STZ", "BF.B", "TAP", "EL", "CL", "CHD", "COTY",
+        # 헬스케어
+        "LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "AMGN",
+        "GILD", "VRTX", "REGN", "BIIB", "MRNA", "ILMN", "IDXX", "ISRG", "SYK",
+        "BDX", "EW", "ZBH", "BAX", "DXCM", "PODD", "HOLX", "ALGN", "GEHC",
+        "CVS", "CI", "HUM", "CNC", "MOH", "HCA", "THC", "UHS", "HSIC",
+        "MCK", "CAH", "ABC", "PDCO",
+        # 금융
+        "BRK.B", "JPM", "BAC", "WFC", "MS", "GS", "BLK", "SCHW", "C", "AXP",
+        "V", "MA", "PYPL", "FIS", "FI", "GPN", "COF", "DFS", "SYF", "AIG",
+        "MET", "PRU", "AFL", "ALL", "TRV", "PGR", "CB", "MMC", "AON", "WTW",
+        "SPGI", "MCO", "ICE", "CME", "CBOE", "NDAQ", "BX", "KKR", "APO",
+        "USB", "TFC", "PNC", "MTB", "FITB", "HBAN", "RF", "CFG", "KEY",
+        "COIN", "HOOD",
+        # 산업재
+        "GE", "CAT", "HON", "UNP", "UPS", "DE", "LMT", "RTX", "NOC", "GD",
+        "BA", "HWM", "TDG", "AXON", "L3H", "LHX", "KTOS", "RKLB",
+        "EMR", "ETN", "PH", "ROK", "AME", "FTV", "ROP", "VRSK", "LDOS",
+        "CSX", "NSC", "FDX", "CHRW", "EXPD", "ODFL", "JBHT", "XPO",
+        "CTAS", "PAYC", "FAST", "GWW", "HUBB", "IEX", "ITW", "MAS",
+        "PNR", "SWK", "TT", "CARR", "OTIS", "PCAR", "CMI", "AGCO",
+        # 에너지
+        "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "PXD",
+        "DVN", "FANG", "HES", "OXY", "HAL", "BKR", "CTRA", "APA",
+        # 소재
+        "LIN", "APD", "SHW", "ECL", "DD", "DOW", "LYB", "PPG", "EMN",
+        "CF", "MOS", "NUE", "STLD", "FCX", "NEM", "GOLD", "ALB", "MP",
+        # 유틸리티
+        "NEE", "SO", "DUK", "D", "SRE", "AEP", "EXC", "XEL", "ED", "WEC",
+        "ES", "ETR", "FE", "PPL", "CMS", "NI", "AES", "EIX", "PCG",
+        "CEG", "VST", "NRG",
+        # 부동산
+        "AMT", "PLD", "CCI", "EQIX", "PSA", "O", "WELL", "DLR", "SPG",
+        "AVB", "EQR", "MAA", "UDR", "CPT", "ESS", "INVH", "AMH",
+        # 기타 성장주 (NDX100 비중 높은 종목)
+        "PLTR", "APP", "TTD", "ARM", "SMCI", "TEAM", "WDAY", "NOW", "SNOW",
+        "MDB", "ZI", "HCP", "PCVX", "SMAR", "CFLT", "GTLB",
+    ]
+    tickers = list(dict.fromkeys(t for t in tickers if "." not in t))
+    print(f"  S&P500 종목 수: {len(tickers)}개 (하드코딩)")
+    return tickers
+
+
 def get_nasdaq100_tickers():
     """나스닥100 구성종목 반환 (2025년 기준 하드코딩 — 분기별 수동 업데이트)."""
     tickers = [
