@@ -543,9 +543,10 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AD 시리즈: linreg_window 재검증 (bear=MA200 + heat_cap=0.10)")
-    print(f"  IS : {IS_START} ~ {IS_END}")
-    print(f"  OOS: {OOS_START} ~ {OOS_END}")
+    print("  AG 시리즈: OOS 구간 분할 검증 (채택 파라미터)")
+    print("  OOS-A: 2023-07-01 ~ 2023-12-31  (2023 하반기)")
+    print("  OOS-B: 2024-01-01 ~ 2024-12-31  (2024 전체)")
+    print("  OOS-C: 2025-01-01 ~ 2026-05-09  (2025~현재)")
     print("="*60)
 
     NDX100 = get_nasdaq100_tickers()
@@ -554,29 +555,48 @@ if __name__ == "__main__":
 
     BASE = SIMPLE_PARAMS
 
-    # linreg_window: 지수회귀 기울기×R² 계산에 사용할 일수
-    # 기존 K1 시리즈(window=90)는 bear=MA50 환경에서 확정 — bear=MA200+heat_cap 환경 재검증
-    variants = [
-        ("기준 window=90 (채택)",  BASE, dict(linreg_window=90)),
-        ("AD1 window=60",          BASE, dict(linreg_window=60)),
-        ("AD2 window=75",          BASE, dict(linreg_window=75)),
-        ("AD3 window=120",         BASE, dict(linreg_window=120)),
-        ("AD4 window=150",         BASE, dict(linreg_window=150)),
+    segments = [
+        ("OOS-A  2023H2", "2023-07-01", "2023-12-31"),
+        ("OOS-B  2024",   "2024-01-01", "2024-12-31"),
+        ("OOS-C  2025~",  "2025-01-01", "2026-05-09"),
+        ("OOS 전체",      "2023-07-01", "2026-05-09"),
     ]
 
-    print(f"\n  {'전략':<28} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
-          f"  {'OOS 수익':>8} {'OOS SPY초과':>11} {'OOS MDD':>8} {'OOS 샤프':>8}")
-    print("  " + "-"*119)
+    print(f"\n  {'구간':<20} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
+    print("  " + "-"*70)
 
-    oos_results = []
-    for label, base, overrides in variants:
-        ri = _run_one_variant(price_data, label, overrides, IS_START,  IS_END,  base_params=base)
-        ro = _run_one_variant(price_data, label, overrides, OOS_START, OOS_END, base_params=base)
-        if ri and ro:
-            print(f"  {label:<28}"
-                  f"  {ri['total_r']:>+7.1f}%  {ri['spy_excess']:>+9.1f}%p  {ri['mdd']:>7.1f}%  {ri['sharpe']:>7.2f}"
-                  f"  {ro['total_r']:>+7.1f}%  {ro['spy_excess']:>+10.1f}%p  {ro['mdd']:>7.1f}%  {ro['sharpe']:>7.2f}")
-            oos_results.append(ro)
+    seg_results = []
+    for label, start, end in segments:
+        r = _run_one_variant(price_data, label, {}, start, end, base_params=BASE)
+        if r:
+            spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
+            print(f"  {label:<20} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
+                  f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
+            seg_results.append(r)
+    print("  " + "-"*70)
 
-    print("  " + "-"*119)
-    plot_variant_comparison(oos_results, title="AD 시리즈 -- linreg_window 재검증 OOS 비교 (2023~2026)")
+    # 구간별 에쿼티 커브 시각화
+    colors = ['steelblue', 'darkorange', 'seagreen', 'crimson']
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    fig.suptitle("AG 시리즈 — OOS 구간 분할 검증 (채택 파라미터)", fontsize=13, fontweight='bold')
+
+    for i, (r, (label, start, end)) in enumerate(zip(seg_results, segments)):
+        ax = axes[i // 2][i % 2]
+        norm  = r['ec']['equity'] / r['start_eq'] * 100
+        s_norm = r['spy_curve'] / r['start_eq'] * 100
+        ax.plot(r['ec'].index, norm, color=colors[i], lw=1.8, label='전략')
+        ax.plot(r['spy_curve'].index, s_norm, color='gray', lw=1.2, ls='--', label='SPY B&H')
+        spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
+        ax.set_title(
+            f"{label}  ({start[:7]} ~ {end[:7]})\n"
+            f"수익 {r['total_r']:+.1f}%  샤프 {r['sharpe']:.2f}  MDD {r['mdd']:.1f}%  SPY {spy_r:+.1f}%"
+        )
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%y-%m'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
