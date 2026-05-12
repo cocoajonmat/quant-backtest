@@ -35,7 +35,7 @@ python trend_backtest.py  # 일반 추세추종
 - NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only
 - V/W/X/Y 시리즈: ec_cap / atr_trail / top_n조정 / 재진입 전부 기각 — 채택 파라미터가 OOS 최우수
 
-**다음 작업 (일반 추세추종):** AA 시리즈 (섹터 분산 제한) / AB 시리즈 (ret12_min 동적 조정)
+**다음 작업 (일반 추세추종):** Z 시리즈 (섹터 분산 제한) / AA 시리즈 (ret12_min 동적 조정)
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)
