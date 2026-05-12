@@ -582,46 +582,46 @@ if __name__ == "__main__":
 
     results = []
 
-    # ── R6-A (과거 채택, 비교용) ──
+    # ── T-Simple+MA200 (이전 채택, 비교용) ──
     print("\n" + "="*60)
-    print("  [1/2] R6-A (과거 채택, 비교용)")
+    print("  [1/2] T-Simple+MA200 (이전 채택, heat_cap=None)")
     print("="*60)
     p1 = PortfolioManager(CONFIG['initial_capital'])
     run_dynamic_backtest(price_data, p1,
         top_n=5, adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
-        bear_filter='block', spy_ma_period=50,
-        exit_mode='hybrid', stop_mode='pct12',
-        atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
-        trailing_stop='original', adx_threshold=20, min_hold_days=3,
-        portfolio_heat_cap=0.10, entry_mode='score',
-        use_macd_rsi_exit=False, require_52w_high=True, w52_pct=0.060,
-    )
-    m1, ec1, sc = compute_metrics(p1, price_data)
-    m1['label'] = 'R6-A'
-    print_metrics(m1)
-    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
-
-    # ── T-Simple (신규 채택) ──
-    print("\n" + "="*60)
-    print("  [2/2] T-Simple (신규 채택)")
-    print("="*60)
-    p2 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p2,
-        top_n=5, adx_min=20,
-        momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
-        ret12_min=0.20,
-        bear_filter='block', spy_ma_period=50,
+        bear_filter='block', spy_ma_period=200,
         exit_mode='hybrid', stop_mode='pct12',
         atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
         trailing_stop='original', adx_threshold=0, min_hold_days=0,
         portfolio_heat_cap=None, entry_mode='universe_only',
         use_macd_rsi_exit=False, require_52w_high=False,
     )
+    m1, ec1, sc = compute_metrics(p1, price_data)
+    m1['label'] = 'T-Simple+MA200 (heat=None)'
+    print_metrics(m1)
+    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
+
+    # ── T-Simple+MA200+heat_cap (최종 채택) ──
+    print("\n" + "="*60)
+    print("  [2/2] T-Simple+MA200+heat_cap (최종 채택, heat_cap=0.10)")
+    print("="*60)
+    p2 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p2,
+        top_n=5, adx_min=20,
+        momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
+        ret12_min=0.20,
+        bear_filter='block', spy_ma_period=200,
+        exit_mode='hybrid', stop_mode='pct12',
+        atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
+        trailing_stop='original', adx_threshold=0, min_hold_days=0,
+        portfolio_heat_cap=0.10, entry_mode='universe_only',
+        use_macd_rsi_exit=False, require_52w_high=False,
+    )
     m2, ec2, _ = compute_metrics(p2, price_data)
-    m2['label'] = 'T-Simple'
+    m2['label'] = 'T-Simple+MA200+heat=0.10 (최종)'
     print_metrics(m2)
     results.append({"label": m2['label'], "ec": ec2, "metrics": m2})
 
-    plot_comparison(results, sc, title="R6-A vs T-Simple (8년 백테스트)")
+    plot_comparison(results, sc, title="T-Simple+MA200: heat_cap 적용 전후 비교 (8년 백테스트)")
