@@ -22,7 +22,7 @@ python backtest.py        # 슈퍼사이클
 python trend_backtest.py  # 일반 추세추종
 ```
 
-## 프로젝트 현황 (2026-05-10 기준)
+## 프로젝트 현황 (2026-05-12 기준)
 
 미국 주식 추세추종 스윙 트레이딩 백테스팅 시스템.
 
@@ -30,12 +30,12 @@ python trend_backtest.py  # 일반 추세추종
 - +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - hybrid / MA200 block / pct12 / trailing_stop=original / ATR 4% / max_pos=4 / ADX>=20 / min_hold_days=3 / 16종목
 
-**일반 추세추종 (T-Simple+MA200 채택, 워크포워드 기준)**
-- OOS (2023~2026): +297.8% / MDD -38.8% / 샤프 1.39 / SPY 초과 +227.2%p
-- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / entry=universe_only
-- R6-A 대비 제거: heat_cap / 52주신고가 / adx_threshold(진입) / min_hold / 5팩터점수 → OOS 과적합 노이즈였음
+**일반 추세추종 (T-Simple+MA200+heat_cap 채택, 워크포워드 기준)**
+- OOS (2023~2026): +362.7% / MDD -30.4% / 샤프 1.57 / SPY 초과 +292.0%p
+- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only
+- U 시리즈: heat_cap=0.10 재도입으로 OOS MDD -38.8%→-30.4% 개선, 수익·샤프도 향상
 
-**다음 작업 (일반 추세추종):** OOS MDD -38.8% 개선 탐색
+**다음 작업 (일반 추세추종):** 없음 (실전 투입 검토 단계)
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)

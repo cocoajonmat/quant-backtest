@@ -400,7 +400,7 @@ def _run_one_variant(price_data, label, overrides, start, end, vix_df=None, base
     if vix_df is not None:
         params['vix_data'] = vix_df.loc[:end]
     pd_sliced = slice_price_data(price_data, start, end)
-    CONFIG['max_positions'] = 4
+    CONFIG['max_positions'] = params.pop('max_positions', 4)
     port = PortfolioManager(CONFIG['initial_capital'])
     run_dynamic_backtest(pd_sliced, port, **params)
 
@@ -418,8 +418,12 @@ def _run_one_variant(price_data, label, overrides, start, end, vix_df=None, base
     mdd = ((ec['equity'] - ec['equity'].cummax()) / ec['equity'].cummax()).min() * 100
     dr  = ec['equity'].pct_change().dropna()
     sharpe = (dr.mean() * 252 - 0.04) / (dr.std() * np.sqrt(252))
+    spy_curve = pd_sliced[bt.BENCHMARK]['Close']
+    spy_curve = spy_curve.loc[ec.index[0]:ec.index[-1]]
+    spy_curve = spy_curve / spy_curve.iloc[0] * start_eq
+
     return {"label": label, "total_r": total_r, "spy_excess": total_r - spy_r,
-            "mdd": mdd, "sharpe": sharpe}
+            "mdd": mdd, "sharpe": sharpe, "ec": ec, "spy_curve": spy_curve, "start_eq": start_eq}
 
 
 def run_bear_filter_comparison(price_data, vix_df):
@@ -490,9 +494,55 @@ def print_simple_vs_r6a(r6a_is, r6a_oos, sim_is, sim_oos):
     print("="*80)
 
 
+def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
+    """OOS 구간 에쿼티 커브 + 드로우다운 비교 차트."""
+    colors = ['#888888', 'steelblue', 'darkorange', 'seagreen', 'crimson']
+    fig, axes = plt.subplots(2, 1, figsize=(14, 9), gridspec_kw={'height_ratios': [3, 1]})
+    fig.suptitle(title, fontsize=13, fontweight='bold')
+
+    ax1 = axes[0]
+    spy_plotted = False
+    for i, r in enumerate(oos_results):
+        if r is None:
+            continue
+        ec = r['ec']
+        norm = ec['equity'] / r['start_eq'] * 100
+        ax1.plot(ec.index, norm, color=colors[i % len(colors)], lw=1.8, label=r['label'])
+        if not spy_plotted:
+            spy_norm = r['spy_curve'] / r['start_eq'] * 100
+            ax1.plot(spy_norm.index, spy_norm.values, color='gray', lw=1.2, ls='--', label='SPY B&H')
+            spy_plotted = True
+
+    ax1.set_ylabel("수익률 (시작=100)")
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%y-%m'))
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=30, ha='right')
+    ax1.legend(fontsize=9)
+    ax1.grid(True, alpha=0.3)
+
+    ax2 = axes[1]
+    for i, r in enumerate(oos_results):
+        if r is None:
+            continue
+        ec = r['ec']
+        dd = (ec['equity'] - ec['equity'].cummax()) / ec['equity'].cummax() * 100
+        ax2.plot(dd.index, dd.values, color=colors[i % len(colors)], lw=1.2, label=r['label'])
+
+    ax2.set_ylabel("드로우다운 (%)")
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%y-%m'))
+    ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30, ha='right')
+    ax2.grid(True, alpha=0.3)
+    ax2.axhline(0, color='black', lw=0.8)
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     print("="*60)
-    print("  bear filter MA50 vs MA200 비교 (R6-A / T-Simple)")
+    print("  U4/U5/U7 실험: MDD 추가 개선 탐색 (U2 heat=0.10 기준)")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
@@ -501,23 +551,29 @@ if __name__ == "__main__":
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
+    U2_BASE = {**SIMPLE_PARAMS, 'bear_filter': 'block', 'spy_ma_period': 200, 'portfolio_heat_cap': 0.10}
+
     variants = [
-        ("R6-A  / MA50",    BEST_PARAMS,   dict(bear_filter='block', spy_ma_period=50)),
-        ("R6-A  / MA200",   BEST_PARAMS,   dict(bear_filter='block', spy_ma_period=200)),
-        ("Simple/ MA50",    SIMPLE_PARAMS, dict(bear_filter='block', spy_ma_period=50)),
-        ("Simple/ MA200",   SIMPLE_PARAMS, dict(bear_filter='block', spy_ma_period=200)),
+        ("U2 기준 (채택)",           U2_BASE, dict()),
+        ("U4 max_pos=3",             U2_BASE, dict(max_positions=3)),
+        ("U5 pos_cap=30%",           U2_BASE, dict(atr_position_cap=0.30)),
+        ("U7 stop=pct8",             U2_BASE, dict(stop_mode='pct8')),
     ]
 
-    print(f"\n  {'전략':<18} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
+    print(f"\n  {'전략':<26} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
           f"  {'OOS 수익':>8} {'OOS SPY초과':>11} {'OOS MDD':>8} {'OOS 샤프':>8}")
-    print("  " + "-"*105)
+    print("  " + "-"*113)
 
+    oos_results = []
     for label, base, overrides in variants:
         ri = _run_one_variant(price_data, label, overrides, IS_START,  IS_END,  base_params=base)
         ro = _run_one_variant(price_data, label, overrides, OOS_START, OOS_END, base_params=base)
         if ri and ro:
-            print(f"  {label:<18}"
+            print(f"  {label:<26}"
                   f"  {ri['total_r']:>+7.1f}%  {ri['spy_excess']:>+9.1f}%p  {ri['mdd']:>7.1f}%  {ri['sharpe']:>7.2f}"
                   f"  {ro['total_r']:>+7.1f}%  {ro['spy_excess']:>+10.1f}%p  {ro['mdd']:>7.1f}%  {ro['sharpe']:>7.2f}")
+            oos_results.append(ro)
 
-    print("  " + "-"*105)
+    print("  " + "-"*113)
+
+    plot_variant_comparison(oos_results, title="U4/U5/U7 실험 — OOS 에쿼티 커브 비교 (2023~2026)")
