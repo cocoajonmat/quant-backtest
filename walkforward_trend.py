@@ -543,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AB 시리즈: exit 방식 재검증 (bear=MA200 + heat_cap=0.10)")
+    print("  AD 시리즈: linreg_window 재검증 (bear=MA200 + heat_cap=0.10)")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
@@ -554,20 +554,14 @@ if __name__ == "__main__":
 
     BASE = SIMPLE_PARAMS
 
-    # exit_mode 옵션:
-    #   'hybrid'       - MA10 하향시 50% + MA20 3일확인 전량 (현재 채택)
-    #   'ma10'         - MA10 하향시 전량 즉시
-    #   'ma20'         - MA20 하향시 전량 즉시
-    #   'ma20_confirm' - MA20 3일 연속 하향시 전량
-    # stop_mode: 'pct12'(현재) vs 'atr' 조합도 함께 검증
+    # linreg_window: 지수회귀 기울기×R² 계산에 사용할 일수
+    # 기존 K1 시리즈(window=90)는 bear=MA50 환경에서 확정 — bear=MA200+heat_cap 환경 재검증
     variants = [
-        ("기준 hybrid (채택)",        BASE, dict(exit_mode='hybrid',      stop_mode='pct12')),
-        ("AB1 MA10 전량즉시",          BASE, dict(exit_mode='fast',        stop_mode='pct12')),
-        ("AB2 MA20 전량즉시",          BASE, dict(exit_mode='ma20_simple', stop_mode='pct12')),
-        ("AB3 MA20 3일확인",           BASE, dict(exit_mode='confirm',     stop_mode='pct12')),
-        ("AB4 hybrid+stop=atr",       BASE, dict(exit_mode='hybrid',      stop_mode='atr')),
-        ("AB5 MA20즉시+stop=atr",      BASE, dict(exit_mode='ma20_simple', stop_mode='atr')),
-        ("AB6 MA20확인+stop=atr",      BASE, dict(exit_mode='confirm',     stop_mode='atr')),
+        ("기준 window=90 (채택)",  BASE, dict(linreg_window=90)),
+        ("AD1 window=60",          BASE, dict(linreg_window=60)),
+        ("AD2 window=75",          BASE, dict(linreg_window=75)),
+        ("AD3 window=120",         BASE, dict(linreg_window=120)),
+        ("AD4 window=150",         BASE, dict(linreg_window=150)),
     ]
 
     print(f"\n  {'전략':<28} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
@@ -585,4 +579,4 @@ if __name__ == "__main__":
             oos_results.append(ro)
 
     print("  " + "-"*119)
-    plot_variant_comparison(oos_results, title="AB 시리즈 -- exit 방식 재검증 OOS 비교 (2023~2026)")
+    plot_variant_comparison(oos_results, title="AD 시리즈 -- linreg_window 재검증 OOS 비교 (2023~2026)")

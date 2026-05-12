@@ -33,9 +33,9 @@ python trend_backtest.py  # 일반 추세추종
 **일반 추세추종 (T-Simple+MA200+heat_cap 채택, 워크포워드 기준)**
 - OOS (2023~2026): +362.7% / MDD -30.4% / 샤프 1.57 / SPY 초과 +292.0%p
 - NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only
-- V/W/X/Y/AA/AB 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 전부 기각 — 채택 파라미터가 OOS 최우수
+- V/W/X/Y/AA/AB/AC/AD 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 / linreg_gate / linreg_window 전부 기각 — 채택 파라미터가 OOS 최우수
 
-**다음 작업 (일반 추세추종):** AC 시리즈 (linreg_gate 재검증, bear=MA200 환경)
+**다음 작업 (일반 추세추종):** AE 시리즈 (atr_risk_pct 재검증, 2~6% 스윕)
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)
