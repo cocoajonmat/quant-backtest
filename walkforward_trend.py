@@ -277,7 +277,7 @@ def print_comparison_table(is_m, oos_m, oos_chain_m):
 
     print(f"\n  핵심 판정")
     print(f"  {'OOS 샤프 >= 0.8':<30} {'PASS' if sharpe_ok else 'FAIL':>6}  ({oos_m['sharpe']:.2f})")
-    print(f"  {'OOS MDD <= IS MDD × 1.5':<30} {'PASS' if mdd_ok else 'FAIL':>6}  ({oos_m['mdd']:.1f}% vs {is_m['mdd']*1.5:.1f}%)")
+    print(f"  {'OOS MDD <= IS MDD x 1.5':<30} {'PASS' if mdd_ok else 'FAIL':>6}  ({oos_m['mdd']:.1f}% vs {is_m['mdd']*1.5:.1f}%)")
     print(f"  {'OOS SPY 초과 수익 양수':<30} {'PASS' if excess_ok else 'FAIL':>6}  ({oos_m['total_return']-oos_m['spy_return']:+.1f}%p)")
 
     if sharpe_ok and mdd_ok and excess_ok:
@@ -294,7 +294,7 @@ def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy
     fig, axes = plt.subplots(2, 2, figsize=(18, 11))
     fig.suptitle("워크포워드 테스트 - 일반 추세추종 (R6-A 파라미터)", fontsize=13, fontweight='bold')
 
-    # ── 차트 1: IS 자산 곡선 ──
+    # 차트 1: IS 자산 곡선
     ax = axes[0, 0]
     ax.plot(is_ec.index, is_ec['equity'], color='steelblue', lw=1.8, label='전략')
     ax.plot(is_spy.index, is_spy.values, color='gray', lw=1.2, ls='--', label='SPY B&H')
@@ -310,7 +310,7 @@ def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # ── 차트 2: OOS 자산 곡선 (독립) ──
+    # 차트 2: OOS 자산 곡선 (독립)
     ax = axes[0, 1]
     ax.plot(oos_ec.index, oos_ec['equity'], color='darkorange', lw=1.8, label='전략 (OOS 독립)')
     ax.plot(oos_spy.index, oos_spy.values, color='gray', lw=1.2, ls='--', label='SPY B&H')
@@ -326,11 +326,11 @@ def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # ── 차트 3: OOS 연속 (IS 자본 이어받기) ──
+    # 차트 3: OOS 연속 (IS 자본 이어받기)
     ax = axes[1, 0]
     if oos_chain_ec is not None:
         ax.plot(oos_chain_ec.index, oos_chain_ec['equity'],
-                color='seagreen', lw=1.8, label='전략 (IS→OOS 연속)')
+                color='seagreen', lw=1.8, label='전략 (IS->OOS 연속)')
         ax.plot(oos_chain_spy.index, oos_chain_spy.values,
                 color='gray', lw=1.2, ls='--', label='SPY B&H (비율 환산)')
         ax.set_title(
@@ -344,7 +344,7 @@ def plot_walkforward(is_ec, is_spy, oos_ec, oos_spy, oos_chain_ec, oos_chain_spy
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # ── 차트 4: IS vs OOS 핵심 지표 비교 막대 ──
+    # 차트 4: IS vs OOS 핵심 지표 비교 막대
     ax = axes[1, 1]
     labels_bar = ['수익률(%)', 'CAGR(%)', '샤프', '손익비', '승률(%)', '|MDD|(%)']
     is_vals  = [is_m['total_return'],  is_m['cagr'],  is_m['sharpe'],
@@ -394,7 +394,7 @@ def load_vix_data(period_years=8):
 
 
 def _run_one_variant(price_data, label, overrides, start, end, vix_df=None, base_params=None):
-    """단일 옵션 구간 실행 → 핵심 지표 반환."""
+    """단일 옵션 구간 실행 -> 핵심 지표 반환."""
     if base_params is None:
         base_params = BEST_PARAMS
     params = {**base_params, **overrides}
@@ -489,15 +489,15 @@ def print_simple_vs_r6a(r6a_is, r6a_oos, sim_is, sim_oos):
     sim_excess   = sim_oos['total_return'] - sim_oos['spy_return']
     print(f"\n  OOS SPY 초과: R6-A {r6a_excess:+.1f}%p  /  단순화 {sim_excess:+.1f}%p")
     if sim_excess > r6a_excess:
-        print("  → 단순화가 OOS에서 더 좋음 (과적합 레이어 제거 효과 확인)")
+        print("  -> 단순화가 OOS에서 더 좋음 (과적합 레이어 제거 효과 확인)")
     else:
-        print("  → R6-A 추가 레이어가 OOS에서도 유효 (과적합 아님)")
+        print("  -> R6-A 추가 레이어가 OOS에서도 유효 (과적합 아님)")
     print("="*80)
 
 
 def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
     """OOS 구간 에쿼티 커브 + 드로우다운 비교 차트."""
-    colors = ['#888888', 'steelblue', 'darkorange', 'seagreen', 'crimson']
+    colors = ['#888888', 'steelblue', 'darkorange', 'seagreen', 'crimson', 'purple', 'brown']
     fig, axes = plt.subplots(2, 1, figsize=(14, 9), gridspec_kw={'height_ratios': [3, 1]})
     fig.suptitle(title, fontsize=13, fontweight='bold')
 
@@ -543,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  Y 시리즈: MA10 50% 청산 후 재진입 허용 실험")
+    print("  AB 시리즈: exit 방식 재검증 (bear=MA200 + heat_cap=0.10)")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
@@ -554,14 +554,25 @@ if __name__ == "__main__":
 
     BASE = SIMPLE_PARAMS
 
+    # exit_mode 옵션:
+    #   'hybrid'       - MA10 하향시 50% + MA20 3일확인 전량 (현재 채택)
+    #   'ma10'         - MA10 하향시 전량 즉시
+    #   'ma20'         - MA20 하향시 전량 즉시
+    #   'ma20_confirm' - MA20 3일 연속 하향시 전량
+    # stop_mode: 'pct12'(현재) vs 'atr' 조합도 함께 검증
     variants = [
-        ("기준 (채택, 재진입없음)",   BASE, dict()),
-        ("Y1 재진입허용",             BASE, dict(allow_reentry=True)),
+        ("기준 hybrid (채택)",        BASE, dict(exit_mode='hybrid',      stop_mode='pct12')),
+        ("AB1 MA10 전량즉시",          BASE, dict(exit_mode='fast',        stop_mode='pct12')),
+        ("AB2 MA20 전량즉시",          BASE, dict(exit_mode='ma20_simple', stop_mode='pct12')),
+        ("AB3 MA20 3일확인",           BASE, dict(exit_mode='confirm',     stop_mode='pct12')),
+        ("AB4 hybrid+stop=atr",       BASE, dict(exit_mode='hybrid',      stop_mode='atr')),
+        ("AB5 MA20즉시+stop=atr",      BASE, dict(exit_mode='ma20_simple', stop_mode='atr')),
+        ("AB6 MA20확인+stop=atr",      BASE, dict(exit_mode='confirm',     stop_mode='atr')),
     ]
 
     print(f"\n  {'전략':<28} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
           f"  {'OOS 수익':>8} {'OOS SPY초과':>11} {'OOS MDD':>8} {'OOS 샤프':>8}")
-    print("  " + "-"*115)
+    print("  " + "-"*119)
 
     oos_results = []
     for label, base, overrides in variants:
@@ -573,5 +584,5 @@ if __name__ == "__main__":
                   f"  {ro['total_r']:>+7.1f}%  {ro['spy_excess']:>+10.1f}%p  {ro['mdd']:>7.1f}%  {ro['sharpe']:>7.2f}")
             oos_results.append(ro)
 
-    print("  " + "-"*115)
-    plot_variant_comparison(oos_results, title="Y 시리즈 — MA10 재진입 OOS 비교 (2023~2026)")
+    print("  " + "-"*119)
+    plot_variant_comparison(oos_results, title="AB 시리즈 -- exit 방식 재검증 OOS 비교 (2023~2026)")
