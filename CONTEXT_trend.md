@@ -55,6 +55,12 @@ A~N 시리즈 실험 로그는 `CONTEXT_trend_archive.md` 참고.
 | T-Simple | 파라미터 단순화 채택 — OOS SPY 초과 +120.4%p (R6-A +84.4%p 대비 우위) |
 | T-Simple+MA200 | bear MA200 채택 — OOS SPY 초과 +227.2%p / 샤프 1.39 |
 | U 시리즈 | **heat_cap=0.10 재도입** — OOS MDD -38.8%→-30.4%, 수익·샤프도 향상 (최종 확정) |
+| V 시리즈 | Equity Curve Filter (ec_cap=15/20/25%) — V1/V2 OOS 마이너스, V3도 수익 반 토막 → **전부 기각** |
+| W 시리즈 | ATR Trailing Stop (stop_mode='atr_trail') — W2 OOS MDD 동급이나 수익 열위 → **기각** |
+| X 시리즈 | top_n=3/7 조정 — X2(top_n=7) OOS +352.5% / 샤프 1.55, 기준과 유의미한 차이 없음 → **기각** |
+| Y 시리즈 | MA 청산 후 재진입 허용 (allow_reentry=True) — OOS 수익 -23.3%p 감소, MDD 거의 동일 → **기각** |
+
+> V/W/X/Y 공통 결론: 현재 채택 파라미터가 모든 변형 대비 OOS 최우수. 추가 개선 여지 미확인.
 
 ---
 
@@ -66,5 +72,10 @@ A~N 시리즈 실험 로그는 `CONTEXT_trend_archive.md` 참고.
 | 12 | ~~T1: bear=none + VIX 동적 사이징~~ | 백테스트에서도 열위 — 기각 | 완료 |
 | 13 | ~~T-Simple + MA200 채택~~ | OOS 압도적 — 확정 | 완료 |
 | 14 | ~~OOS MDD -38.8% 개선 탐색~~ | heat_cap=0.10 재도입으로 -30.4% 달성 — 완료 | 완료 |
+| 15 | ~~V/W/X/Y 시리즈~~ | ec_cap / atr_trail / top_n / 재진입 — 전부 기각, 기준 최우수 | 완료 |
+| 16 | **섹터 분산 제한 (AA 시리즈)** | NDX100 빅테크 쏠림 완화 — N 시리즈 상관계수 기각 전례 있어 낮은 기대치 | 미완료 |
+| 17 | **ret12_min 동적 조정 (AB 시리즈)** | 강세장/약세장 국면별 진입 기준 완화·강화 | 미완료 |
 
-상세 실험 로그 (O/P/Q/R/S/T 시리즈) → `CONTEXT_trend_archive.md`
+> 다음 시리즈 표기: Z 이후 AA, AB, AC... (엑셀 열 방식)
+
+상세 실험 로그 (O/P/Q/R/S/T/U/V/W/X/Y 시리즈) → `CONTEXT_trend_archive.md`

@@ -237,7 +237,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          require_vol_surge=False, vol_surge_ratio=1.5, vol_surge_days=5,
                          vix_data=None, vix_threshold=30,
                          ma_confirm_days=0,
-                         vix_sizing_data=None):
+                         vix_sizing_data=None,
+                         equity_drawdown_cap=None,
+                         allow_reentry=False):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -299,6 +301,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     current_universe = []
     last_universe_update = None
     ma_below_streak = 0  # MA 연속 이탈일 수 (ma_confirm_days용)
+    peak_equity = CONFIG['initial_capital']  # equity_drawdown_cap용 고점 추적
+    reentry_candidates = {}  # allow_reentry용: {ticker: half_exit_date}
 
     print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
@@ -377,6 +381,11 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                               'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
                     portfolio.sell_all(ticker, price_snapshot[ticker], reason, date)
                     pending_tranches.pop(ticker, None)
+                    # MA 청산(추세 약화)일 때만 재진입 후보 등록 (하드스탑/트레일은 제외)
+                    if allow_reentry and reason in ('MA20_HYBRID_ALL', 'MA10_ALL', 'MA20_BREAK'):
+                        reentry_candidates[ticker] = date
+                    else:
+                        reentry_candidates.pop(ticker, None)
                     break
                 else:
                     portfolio.sell_partial(ticker, price_snapshot[ticker], ratio, reason, date)
@@ -420,7 +429,15 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         pending_tranches.pop(ticker, None)
 
         # 신규 진입
-        if portfolio.position_count() < CONFIG['max_positions']:
+        # equity_drawdown_cap: 포트폴리오 최고점 대비 n% 이상 낙폭 시 신규 진입 중단
+        _cur_eq = portfolio.total_equity(price_snapshot)
+        ec_blocked = (
+            equity_drawdown_cap is not None
+            and peak_equity > 0
+            and (_cur_eq / peak_equity - 1) <= -equity_drawdown_cap
+        )
+
+        if not ec_blocked and portfolio.position_count() < CONFIG['max_positions']:
             for ticker in current_universe:
                 if ticker in portfolio.positions:
                     continue
@@ -564,7 +581,53 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         "trigger_date": date + timedelta(days=5),
                     }
 
+        # 재진입 처리: MA 청산 후 MA10 위로 회복 + 최소 3일 경과 시 재진입
+        if allow_reentry and reentry_candidates:
+            for ticker in list(reentry_candidates.keys()):
+                if ticker in portfolio.positions:
+                    reentry_candidates.pop(ticker, None)
+                    continue
+                if portfolio.position_count() >= CONFIG['max_positions']:
+                    break
+                # 최소 3일 쿨다운
+                if (date - reentry_candidates[ticker]).days < 3:
+                    continue
+                if ticker not in current_universe:
+                    reentry_candidates.pop(ticker, None)
+                    continue
+                if not spy_above_ma:
+                    continue
+                if ticker not in price_data or date not in price_data[ticker].index:
+                    continue
+                df = price_data[ticker]
+                idx = df.index.get_loc(date)
+                if idx < 15:
+                    continue
+                ma10 = df['Close'].iloc[idx - 10:idx + 1].mean()
+                current_price = price_snapshot.get(ticker)
+                if current_price is None or current_price <= ma10:
+                    continue
+                # MA10 위 회복 확인 → 재진입
+                cap_re = None
+                if atr_sizing:
+                    atr = bt.calc_atr(df, idx)
+                    stop_dist_pct = (atr * 2.5) / current_price
+                    if stop_dist_pct > 0:
+                        current_eq = portfolio.total_equity(price_snapshot)
+                        cap_re = (current_eq * atr_risk_pct) / stop_dist_pct
+                        cap_re = max(200, min(cap_re, current_eq * atr_position_cap))
+                success = portfolio.buy(ticker, current_price, 'strong', date, tranche=1,
+                                        price_snapshot=price_snapshot, capital_override=cap_re)
+                if success:
+                    reentry_candidates.pop(ticker, None)
+                    pending_tranches[ticker] = {
+                        "tranche": 2,
+                        "trigger_date": date + timedelta(days=5),
+                    }
+
         equity = portfolio.total_equity(price_snapshot)
+        if equity > peak_equity:
+            peak_equity = equity
         portfolio.equity_curve.append({"date": date, "equity": equity})
 
     print(f"백테스팅 완료. 총 거래 횟수: {len(portfolio.trade_log)}건")

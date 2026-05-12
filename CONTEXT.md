@@ -30,4 +30,4 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 ### 일반 추세추종 (T-Simple+MA200+heat=0.10 최종 확정)
 - 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA200 / ATR 4% / max_positions=4 / heat_cap=0.10 / entry=universe_only / use_macd_rsi_exit=False
 - 워크포워드 OOS (2023~2026): +362.7% / MDD -30.4% / 샤프 1.57 / SPY 초과 +292.0%p
-- **다음 실험: 없음 (실전 투입 검토 단계)** → 상세: `CONTEXT_trend.md`
+- **다음 실험: AA 시리즈 (섹터 분산 제한) / AB 시리즈 (ret12_min 동적 조정)** → 상세: `CONTEXT_trend.md`

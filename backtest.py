@@ -604,7 +604,18 @@ def check_sell_signals(df, idx, pos, stop_mode='pct12', exit_mode='current', tra
         triggered = pos.pnl_pct(current) <= -0.08
     elif stop_mode == 'pct12':
         triggered = pos.pnl_pct(current) <= -0.12
-    else:  # atr
+    elif stop_mode == 'atr_trail':
+        # ATR trailing stop: 고점 기준 ATR×3.0 아래면 청산 (진입가 기준 최소 -15% 보호)
+        if current > pos.peak_price:
+            pos.peak_price = current
+        if idx >= 15:
+            atr = calc_atr(df, idx)
+            trail_stop = pos.peak_price - atr * 3.0
+            hard_floor = pos.avg_price * 0.85
+            triggered = current <= max(trail_stop, hard_floor)
+        else:
+            triggered = pos.pnl_pct(current) <= -0.12
+    else:  # atr (진입가 기준 ATR 고정)
         if idx >= 15:
             atr = calc_atr(df, idx)
             stop_price = pos.avg_price - atr * 2.5

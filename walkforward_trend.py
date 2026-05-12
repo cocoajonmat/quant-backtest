@@ -73,6 +73,7 @@ BEST_PARAMS = dict(
 # 제거: portfolio_heat_cap / require_52w_high / min_hold_days / adx_threshold / entry_mode=score
 # 핵심만 유지: linreg 유니버스 + bear=MA50 + ATR sizing + hybrid exit
 # ─────────────────────────────────────────────
+# 현재 채택 파라미터 (T-Simple + MA200 + heat_cap=0.10, 2026-05-12 확정)
 SIMPLE_PARAMS = dict(
     top_n=5,
     adx_min=20,
@@ -81,7 +82,7 @@ SIMPLE_PARAMS = dict(
     linreg_window=90,
     ret12_min=0.20,
     bear_filter='block',
-    spy_ma_period=50,
+    spy_ma_period=200,
     exit_mode='hybrid',
     stop_mode='pct12',
     atr_sizing=True,
@@ -90,7 +91,7 @@ SIMPLE_PARAMS = dict(
     trailing_stop='original',
     adx_threshold=0,
     min_hold_days=0,
-    portfolio_heat_cap=None,
+    portfolio_heat_cap=0.10,
     entry_mode='universe_only',
     use_macd_rsi_exit=False,
     sector_max=None,
@@ -542,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  U4/U5/U7 실험: MDD 추가 개선 탐색 (U2 heat=0.10 기준)")
+    print("  Y 시리즈: MA10 50% 청산 후 재진입 허용 실험")
     print(f"  IS : {IS_START} ~ {IS_END}")
     print(f"  OOS: {OOS_START} ~ {OOS_END}")
     print("="*60)
@@ -551,29 +552,26 @@ if __name__ == "__main__":
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    U2_BASE = {**SIMPLE_PARAMS, 'bear_filter': 'block', 'spy_ma_period': 200, 'portfolio_heat_cap': 0.10}
+    BASE = SIMPLE_PARAMS
 
     variants = [
-        ("U2 기준 (채택)",           U2_BASE, dict()),
-        ("U4 max_pos=3",             U2_BASE, dict(max_positions=3)),
-        ("U5 pos_cap=30%",           U2_BASE, dict(atr_position_cap=0.30)),
-        ("U7 stop=pct8",             U2_BASE, dict(stop_mode='pct8')),
+        ("기준 (채택, 재진입없음)",   BASE, dict()),
+        ("Y1 재진입허용",             BASE, dict(allow_reentry=True)),
     ]
 
-    print(f"\n  {'전략':<26} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
+    print(f"\n  {'전략':<28} {'IS 수익':>8} {'IS SPY초과':>10} {'IS MDD':>8} {'IS 샤프':>8}"
           f"  {'OOS 수익':>8} {'OOS SPY초과':>11} {'OOS MDD':>8} {'OOS 샤프':>8}")
-    print("  " + "-"*113)
+    print("  " + "-"*115)
 
     oos_results = []
     for label, base, overrides in variants:
         ri = _run_one_variant(price_data, label, overrides, IS_START,  IS_END,  base_params=base)
         ro = _run_one_variant(price_data, label, overrides, OOS_START, OOS_END, base_params=base)
         if ri and ro:
-            print(f"  {label:<26}"
+            print(f"  {label:<28}"
                   f"  {ri['total_r']:>+7.1f}%  {ri['spy_excess']:>+9.1f}%p  {ri['mdd']:>7.1f}%  {ri['sharpe']:>7.2f}"
                   f"  {ro['total_r']:>+7.1f}%  {ro['spy_excess']:>+10.1f}%p  {ro['mdd']:>7.1f}%  {ro['sharpe']:>7.2f}")
             oos_results.append(ro)
 
-    print("  " + "-"*113)
-
-    plot_variant_comparison(oos_results, title="U4/U5/U7 실험 — OOS 에쿼티 커브 비교 (2023~2026)")
+    print("  " + "-"*115)
+    plot_variant_comparison(oos_results, title="Y 시리즈 — MA10 재진입 OOS 비교 (2023~2026)")
