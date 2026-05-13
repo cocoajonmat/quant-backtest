@@ -242,7 +242,11 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          allow_reentry=False,
                          bear_action='none',
                          bear_sell_delay=0,
-                         rebalance_days=21):
+                         rebalance_days=21,
+                         pyramid_mode=None,
+                         pyramid_atr_mult=1.0,
+                         pyramid_score_pct=0.20,
+                         pyramid_max=2):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -301,6 +305,16 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
 
     bear_sell_delay:
       bear_action='sell_delayed' 사용 시 연속 이탈 일수 기준 (기본 3)
+
+    pyramid_mode:
+      None    — 피라미딩 없음 (기존)
+      'atr'   — 진입가 대비 +pyramid_atr_mult ATR 상승마다 추가 매수
+      'score' — 진입 시점 linreg score 대비 pyramid_score_pct 이상 상승 시 추가 매수
+      'and'   — atr AND score 둘 다 충족 시 추가 매수
+
+    pyramid_atr_mult: ATR 기반 트리거 배수 (기본 1.0)
+    pyramid_score_pct: score 기반 트리거 상승률 (기본 0.20 = 20%)
+    pyramid_max: 추가 매수 최대 횟수 (기본 2)
     """
     from datetime import timedelta
 
@@ -316,6 +330,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     reentry_candidates = {}  # allow_reentry용: {ticker: half_exit_date}
     prev_spy_above_ma = True  # bear_action용: 이전 날 MA 상태 추적
     bear_sell_streak = 0      # bear_action='sell_delayed'용: 연속 이탈일 수
+    # pyramid_state: {ticker: {"count": 추가매수횟수, "next_atr_price": 다음ATR트리거가격, "entry_score": 진입시score}}
+    pyramid_state = {}
 
     print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
@@ -418,6 +434,7 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                               'MA20_BREAK', 'MA10_ALL', 'MA20_CONFIRM', 'MA20_HYBRID_ALL'):
                     portfolio.sell_all(ticker, price_snapshot[ticker], reason, date)
                     pending_tranches.pop(ticker, None)
+                    pyramid_state.pop(ticker, None)
                     # MA 청산(추세 약화)일 때만 재진입 후보 등록 (하드스탑/트레일은 제외)
                     if allow_reentry and reason in ('MA20_HYBRID_ALL', 'MA10_ALL', 'MA20_BREAK'):
                         reentry_candidates[ticker] = date
@@ -617,6 +634,107 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         "tranche": 2,
                         "trigger_date": date + timedelta(days=5),
                     }
+                    if pyramid_mode is not None and idx >= 15:
+                        entry_atr = bt.calc_atr(price_data[ticker], idx)
+                        entry_score = calc_momentum_score(
+                            price_data[ticker]['Close'], idx, window=linreg_window)
+                        pyramid_state[ticker] = {
+                            "count": 0,
+                            "next_atr_price": entry_price + pyramid_atr_mult * entry_atr,
+                            "entry_score": entry_score,
+                        }
+
+        # 피라미딩 처리
+        if pyramid_mode is not None:
+            for ticker in list(pyramid_state.keys()):
+                if ticker not in portfolio.positions:
+                    pyramid_state.pop(ticker, None)
+                    continue
+                ps = pyramid_state[ticker]
+                if ps["count"] >= pyramid_max:
+                    continue
+                if ticker not in price_data or date not in price_data[ticker].index:
+                    continue
+                current_price = price_snapshot.get(ticker)
+                if current_price is None:
+                    continue
+                df = price_data[ticker]
+                idx = df.index.get_loc(date)
+                if idx < 15:
+                    continue
+
+                # 트리거 조건 판단
+                atr_triggered = current_price >= ps["next_atr_price"]
+                score_triggered = False
+                if pyramid_mode in ('score', 'and'):
+                    cur_score = calc_momentum_score(df['Close'], idx, window=linreg_window)
+                    entry_score = ps["entry_score"]
+                    if entry_score > 0:
+                        score_triggered = cur_score >= entry_score * (1 + pyramid_score_pct)
+                    else:
+                        score_triggered = cur_score > linreg_gate
+
+                if pyramid_mode == 'atr':
+                    triggered = atr_triggered
+                elif pyramid_mode == 'score':
+                    triggered = score_triggered
+                else:  # 'and'
+                    triggered = atr_triggered and score_triggered
+
+                if not triggered:
+                    continue
+
+                # heat_cap 체크
+                if portfolio_heat_cap is not None and atr_sizing:
+                    current_eq = portfolio.total_equity(price_snapshot)
+                    total_heat = 0.0
+                    for h_ticker, h_pos in portfolio.positions.items():
+                        if h_ticker not in price_data or date not in price_data[h_ticker].index:
+                            continue
+                        h_df = price_data[h_ticker]
+                        h_idx = h_df.index.get_loc(date)
+                        if h_idx < 15:
+                            continue
+                        h_atr = bt.calc_atr(h_df, h_idx)
+                        h_price = price_snapshot.get(h_ticker, 0)
+                        if h_price <= 0:
+                            continue
+                        h_stop_dist = (h_atr * 2.5) / h_price
+                        h_value = h_pos.shares * h_price
+                        total_heat += (h_value * h_stop_dist) / current_eq
+                    if total_heat >= portfolio_heat_cap:
+                        continue
+
+                # 추가 매수: 초기 포지션의 50% 크기 (ATR 사이징)
+                pos = portfolio.positions[ticker]
+                cap_pyr = None
+                if atr_sizing:
+                    atr = bt.calc_atr(df, idx)
+                    stop_dist_pct = (atr * 2.5) / current_price
+                    if stop_dist_pct > 0:
+                        current_eq = portfolio.total_equity(price_snapshot)
+                        cap_pyr = (current_eq * atr_risk_pct * 0.5) / stop_dist_pct
+                        cap_pyr = max(200, min(cap_pyr, current_eq * atr_position_cap * 0.5))
+
+                if cap_pyr is None or cap_pyr < 100:
+                    continue
+                shares_to_add = int(cap_pyr / current_price)
+                if shares_to_add == 0:
+                    continue
+                cost = portfolio._buy_cost(shares_to_add, current_price)
+                if cost > portfolio.cash:
+                    continue
+
+                portfolio.cash -= cost
+                pos.add_tranche(shares_to_add, current_price, date)
+                portfolio.trade_log.append({
+                    "date": date, "ticker": ticker, "action": f"BUY_PYR{ps['count']+1}",
+                    "price": current_price, "shares": shares_to_add, "signal": "pyramid",
+                })
+                ps["count"] += 1
+                # ATR 기반 다음 트리거 가격 갱신
+                atr_now = bt.calc_atr(df, idx)
+                ps["next_atr_price"] = current_price + pyramid_atr_mult * atr_now
 
         # 재진입 처리: MA 청산 후 MA10 위로 회복 + 최소 3일 경과 시 재진입
         if allow_reentry and reentry_candidates:
@@ -696,24 +814,26 @@ if __name__ == "__main__":
 
     # ── 채택 파라미터 (비교 기준) ──
     print("\n" + "="*60)
-    print("  [1/2] 채택 파라미터 (rebalance_days=21)")
+    print("  [1/2] 채택 파라미터 (피라미딩 없음)")
     print("="*60)
     p0 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p0, **BASE, rebalance_days=21)
+    run_dynamic_backtest(price_data, p0, **BASE, rebalance_days=5, pyramid_mode=None)
     m0, ec0, sc = compute_metrics(p0, price_data)
-    m0['label'] = '채택 (21일)'
+    m0['label'] = '채택 (피라미딩없음)'
     print_metrics(m0)
     results.append({"label": m0['label'], "ec": ec0, "metrics": m0})
 
-    # ── AI2: 주 1회 리밸런싱 ──
+    # ── AK3: ATR AND score 피라미딩 ──
     print("\n" + "="*60)
-    print("  [2/2] AI2: 주 1회 리밸런싱 (rebalance_days=5)")
+    print("  [2/2] AK3: 피라미딩 (ATR AND score)")
     print("="*60)
     p1 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p1, **BASE, rebalance_days=5)
+    run_dynamic_backtest(price_data, p1, **BASE, rebalance_days=5,
+                         pyramid_mode='and', pyramid_atr_mult=1.0,
+                         pyramid_score_pct=0.20, pyramid_max=2)
     m1, ec1, _ = compute_metrics(p1, price_data)
-    m1['label'] = 'AI2: 주1회 (5일)'
+    m1['label'] = 'AK3: ATR AND score'
     print_metrics(m1)
     results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
 
-    plot_comparison(results, sc, title="AI 시리즈: 주별 리밸런싱 (8년 백테스트)")
+    plot_comparison(results, sc, title="AK 시리즈: 피라미딩 (8년 백테스트)")

@@ -543,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AI 시리즈: 주별 리밸런싱 워크포워드 검증")
+    print("  AK 시리즈: 피라미딩 워크포워드 검증")
     print("  IS : 2021-01-01 ~ 2023-06-30")
     print("  OOS: 2023-07-01 ~ 2026-05-09")
     print("="*60)
@@ -552,31 +552,34 @@ if __name__ == "__main__":
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    BASE = SIMPLE_PARAMS
+    # 채택 파라미터 (rebalance_days=5 포함)
+    BASE = {**SIMPLE_PARAMS, "rebalance_days": 5}
 
-    # AI 시리즈: 유니버스 리밸런싱 주기 변경 (달력일 기준)
-    # 월 1회(21일) 기준 → 격주(10일) → 주 1회(5일) → 주 2회(3일)
+    # AK 시리즈: 피라미딩 방식 비교
+    # AK1: ATR 기반 (진입가 + 1ATR 상승 시 추가)
+    # AK2: linreg score 기반 (진입 score 대비 20% 상승 시 추가)
+    # AK3: ATR AND score 둘 다 충족 시 추가
     variants = [
-        ("채택 (월1회, 21일)",   dict(rebalance_days=21)),
-        ("AI1: 격주 (10일)",     dict(rebalance_days=10)),
-        ("AI2: 주1회 (5일)",     dict(rebalance_days=5)),
-        ("AI3: 주2회 (3일)",     dict(rebalance_days=3)),
+        ("채택 (피라미딩없음)",      dict(pyramid_mode=None)),
+        ("AK1: ATR (x1.0)",         dict(pyramid_mode='atr',   pyramid_atr_mult=1.0, pyramid_max=2)),
+        ("AK2: score (+20%)",        dict(pyramid_mode='score', pyramid_score_pct=0.20, pyramid_max=2)),
+        ("AK3: ATR AND score",       dict(pyramid_mode='and',   pyramid_atr_mult=1.0, pyramid_score_pct=0.20, pyramid_max=2)),
     ]
 
     for seg_label, start, end in [("IS (2021~2023H1)", IS_START, IS_END),
                                    ("OOS (2023H2~2026)", OOS_START, OOS_END)]:
         print(f"\n{'='*75}")
-        print(f"  AI 시리즈 - {seg_label}")
+        print(f"  AK 시리즈 - {seg_label}")
         print(f"{'='*75}")
-        print(f"  {'변형':<22} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
-        print("  " + "-"*70)
+        print(f"  {'변형':<24} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
+        print("  " + "-"*72)
         for label, overrides in variants:
             r = _run_one_variant(price_data, label, overrides, start, end, base_params=BASE)
             if r:
                 spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
-                print(f"  {label:<22} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
+                print(f"  {label:<24} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
                       f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
-        print("  " + "-"*70)
+        print("  " + "-"*72)
 
     # OOS 에쿼티 커브 시각화
     oos_results = []
@@ -585,4 +588,4 @@ if __name__ == "__main__":
         if r:
             oos_results.append(r)
 
-    plot_variant_comparison(oos_results, title="AI 시리즈 — OOS 에쿼티 커브 비교 (주별 리밸런싱)")
+    plot_variant_comparison(oos_results, title="AK 시리즈 — OOS 에쿼티 커브 비교 (피라미딩)")
