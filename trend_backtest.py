@@ -241,7 +241,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          equity_drawdown_cap=None,
                          allow_reentry=False,
                          bear_action='none',
-                         bear_sell_delay=0):
+                         bear_sell_delay=0,
+                         rebalance_days=21):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -386,8 +387,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         reentry_candidates.pop(ticker, None)
         prev_spy_above_ma = spy_above_ma
 
-        # 유니버스 업데이트 (월 1회)
-        if last_universe_update is None or (date - last_universe_update).days >= 21:
+        # 유니버스 업데이트
+        if last_universe_update is None or (date - last_universe_update).days >= rebalance_days:
             current_universe = get_dynamic_universe(
                 price_data, date, top_n=top_n, adx_min=adx_min,
                 ret12_min=ret12_min, dollar_vol_min=dollar_vol_min,
@@ -695,35 +696,24 @@ if __name__ == "__main__":
 
     # ── 채택 파라미터 (비교 기준) ──
     print("\n" + "="*60)
-    print("  [1/3] 채택 파라미터 (bear_action=none)")
+    print("  [1/2] 채택 파라미터 (rebalance_days=21)")
     print("="*60)
     p0 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p0, **BASE, bear_action='none')
+    run_dynamic_backtest(price_data, p0, **BASE, rebalance_days=21)
     m0, ec0, sc = compute_metrics(p0, price_data)
-    m0['label'] = '채택 (bear_action=none)'
+    m0['label'] = '채택 (21일)'
     print_metrics(m0)
     results.append({"label": m0['label'], "ec": ec0, "metrics": m0})
 
-    # ── AH1: MA200 이탈 즉시 전량 청산 ──
+    # ── AI2: 주 1회 리밸런싱 ──
     print("\n" + "="*60)
-    print("  [2/3] AH1: bear_action=sell_all (즉시 청산)")
+    print("  [2/2] AI2: 주 1회 리밸런싱 (rebalance_days=5)")
     print("="*60)
     p1 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p1, **BASE, bear_action='sell_all')
+    run_dynamic_backtest(price_data, p1, **BASE, rebalance_days=5)
     m1, ec1, _ = compute_metrics(p1, price_data)
-    m1['label'] = 'AH1: sell_all (즉시)'
+    m1['label'] = 'AI2: 주1회 (5일)'
     print_metrics(m1)
     results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
 
-    # ── AH2: MA200 아래 3일 연속 후 전량 청산 ──
-    print("\n" + "="*60)
-    print("  [3/3] AH2: bear_action=sell_delayed (3일 연속 후 청산)")
-    print("="*60)
-    p2 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p2, **BASE, bear_action='sell_delayed', bear_sell_delay=3)
-    m2, ec2, _ = compute_metrics(p2, price_data)
-    m2['label'] = 'AH2: sell_delayed (3일)'
-    print_metrics(m2)
-    results.append({"label": m2['label'], "ec": ec2, "metrics": m2})
-
-    plot_comparison(results, sc, title="AH 시리즈: 베어마켓 강제청산 (8년 백테스트)")
+    plot_comparison(results, sc, title="AI 시리즈: 주별 리밸런싱 (8년 백테스트)")

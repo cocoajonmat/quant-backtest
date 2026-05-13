@@ -30,13 +30,13 @@ python trend_backtest.py  # 일반 추세추종
 - +606.9% / CAGR 59.9% / MDD -17.4% / 샤프 1.76 (SPY +86.9%)
 - hybrid / MA200 block / pct12 / trailing_stop=original / ATR 4% / max_pos=4 / ADX>=20 / min_hold_days=3 / 16종목
 
-**일반 추세추종 (T-Simple+MA200+heat_cap 채택, 워크포워드 기준)**
-- OOS (2023~2026): +362.7% / MDD -30.4% / 샤프 1.57 / SPY 초과 +292.0%p
-- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only
-- V/W/X/Y/AA/AB/AC/AD/AE/AF/AG/AH 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 / linreg_gate / linreg_window / atr_risk_pct / max_positions / OOS구간분할 / 베어마켓강제청산 전부 기각 또는 확인 — 채택 파라미터가 OOS 최우수
+**일반 추세추종 (T-Simple+MA200+heat_cap+rebalance_days=5 채택, 워크포워드 기준)**
+- OOS (2023~2026): +427.4% / MDD -29.5% / 샤프 1.68 / SPY 초과 +356.7%p
+- NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only / rebalance_days=5
+- V/W/X/Y/AA/AB/AC/AD/AE/AF/AG/AH/AI 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 / linreg_gate / linreg_window / atr_risk_pct / max_positions / OOS구간분할 / 베어마켓강제청산 / 주별리밸런싱 — AI2(5일) 채택, 나머지 기각
 - 종합 검증 완료 (validation.py): 수수료 반영 확인 / 서바이버십 바이어스 낮음 / MDD 26회·평균50일 / 롤링WF 3/5 SPY 초과 / 평균 포지션 1.74개
 
-**다음 작업 (일반 추세추종):** AI(주별리밸런싱) → AK(피라미딩) → AJ(절대모멘텀) → AL(손절후재진입금지) 순서로 진행
+**다음 작업 (일반 추세추종):** AK(피라미딩) → AJ(절대모멘텀) → AL(손절후재진입금지) 순서로 진행
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)

@@ -543,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AH 시리즈: 베어마켓 강제청산 워크포워드 검증")
+    print("  AI 시리즈: 주별 리밸런싱 워크포워드 검증")
     print("  IS : 2021-01-01 ~ 2023-06-30")
     print("  OOS: 2023-07-01 ~ 2026-05-09")
     print("="*60)
@@ -554,27 +554,27 @@ if __name__ == "__main__":
 
     BASE = SIMPLE_PARAMS
 
-    # 변형 정의: (label, bear_action overrides)
+    # AI 시리즈: 유니버스 리밸런싱 주기 변경 (달력일 기준)
+    # 월 1회(21일) 기준 → 격주(10일) → 주 1회(5일) → 주 2회(3일)
     variants = [
-        ("채택 (none)",       dict(bear_action='none')),
-        ("AH1 즉시청산",      dict(bear_action='sell_all')),
-        ("AH2 3일후청산",     dict(bear_action='sell_delayed', bear_sell_delay=3)),
-        ("AH3 5일후청산",     dict(bear_action='sell_delayed', bear_sell_delay=5)),
-        ("AH4 10일후청산",    dict(bear_action='sell_delayed', bear_sell_delay=10)),
+        ("채택 (월1회, 21일)",   dict(rebalance_days=21)),
+        ("AI1: 격주 (10일)",     dict(rebalance_days=10)),
+        ("AI2: 주1회 (5일)",     dict(rebalance_days=5)),
+        ("AI3: 주2회 (3일)",     dict(rebalance_days=3)),
     ]
 
     for seg_label, start, end in [("IS (2021~2023H1)", IS_START, IS_END),
                                    ("OOS (2023H2~2026)", OOS_START, OOS_END)]:
         print(f"\n{'='*75}")
-        print(f"  AH 시리즈 - {seg_label}")
+        print(f"  AI 시리즈 - {seg_label}")
         print(f"{'='*75}")
-        print(f"  {'변형':<20} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
+        print(f"  {'변형':<22} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
         print("  " + "-"*70)
         for label, overrides in variants:
             r = _run_one_variant(price_data, label, overrides, start, end, base_params=BASE)
             if r:
                 spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
-                print(f"  {label:<20} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
+                print(f"  {label:<22} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
                       f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
         print("  " + "-"*70)
 
@@ -585,4 +585,4 @@ if __name__ == "__main__":
         if r:
             oos_results.append(r)
 
-    plot_variant_comparison(oos_results, title="AH 시리즈 — OOS 에쿼티 커브 비교 (베어마켓 강제청산)")
+    plot_variant_comparison(oos_results, title="AI 시리즈 — OOS 에쿼티 커브 비교 (주별 리밸런싱)")
