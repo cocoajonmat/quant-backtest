@@ -239,7 +239,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          ma_confirm_days=0,
                          vix_sizing_data=None,
                          equity_drawdown_cap=None,
-                         allow_reentry=False):
+                         allow_reentry=False,
+                         bear_action='none',
+                         bear_sell_delay=0):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -290,6 +292,14 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                   VIX 20~30: atr_risk_pct × 0.75
                   VIX 30~40: atr_risk_pct × 0.50
                   VIX >= 40: atr_risk_pct × 0.25
+
+    bear_action:
+      'none'        — 기존: bear 진입 차단만, 기존 포지션 유지
+      'sell_all'    — SPY가 MA200 아래로 전환된 날 기존 포지션 전량 즉시 청산
+      'sell_delayed'— MA200 아래 bear_sell_delay일 연속 유지 후 전량 청산
+
+    bear_sell_delay:
+      bear_action='sell_delayed' 사용 시 연속 이탈 일수 기준 (기본 3)
     """
     from datetime import timedelta
 
@@ -303,6 +313,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     ma_below_streak = 0  # MA 연속 이탈일 수 (ma_confirm_days용)
     peak_equity = CONFIG['initial_capital']  # equity_drawdown_cap용 고점 추적
     reentry_candidates = {}  # allow_reentry용: {ticker: half_exit_date}
+    prev_spy_above_ma = True  # bear_action용: 이전 날 MA 상태 추적
+    bear_sell_streak = 0      # bear_action='sell_delayed'용: 연속 이탈일 수
 
     print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
@@ -349,6 +361,30 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                 spy_above_ma = not (ma_blocked or vix_blocked)
             else:
                 spy_above_ma = not ma_blocked
+
+        # AH: bear 전환 시 기존 포지션 강제 청산
+        if bear_action != 'none' and portfolio.positions:
+            do_bear_sell = False
+            if bear_action == 'sell_all':
+                # MA200 아래로 전환된 날 즉시 청산
+                if prev_spy_above_ma and not spy_above_ma:
+                    do_bear_sell = True
+            elif bear_action == 'sell_delayed':
+                # MA200 아래 연속 bear_sell_delay일 유지 시 청산
+                if not spy_above_ma:
+                    bear_sell_streak += 1
+                else:
+                    bear_sell_streak = 0
+                if bear_sell_streak == bear_sell_delay:
+                    do_bear_sell = True
+            if do_bear_sell:
+                for ticker in list(portfolio.positions.keys()):
+                    price = price_snapshot.get(ticker)
+                    if price is not None:
+                        portfolio.sell_all(ticker, price, 'BEAR_FORCE_SELL', date)
+                        pending_tranches.pop(ticker, None)
+                        reentry_candidates.pop(ticker, None)
+        prev_spy_above_ma = spy_above_ma
 
         # 유니버스 업데이트 (월 1회)
         if last_universe_update is None or (date - last_universe_update).days >= 21:
@@ -645,33 +681,7 @@ if __name__ == "__main__":
 
     results = []
 
-    # ── T-Simple+MA200 (이전 채택, 비교용) ──
-    print("\n" + "="*60)
-    print("  [1/2] T-Simple+MA200 (이전 채택, heat_cap=None)")
-    print("="*60)
-    p1 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p1,
-        top_n=5, adx_min=20,
-        momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
-        ret12_min=0.20,
-        bear_filter='block', spy_ma_period=200,
-        exit_mode='hybrid', stop_mode='pct12',
-        atr_sizing=True, atr_risk_pct=0.04, atr_position_cap=0.40,
-        trailing_stop='original', adx_threshold=0, min_hold_days=0,
-        portfolio_heat_cap=None, entry_mode='universe_only',
-        use_macd_rsi_exit=False, require_52w_high=False,
-    )
-    m1, ec1, sc = compute_metrics(p1, price_data)
-    m1['label'] = 'T-Simple+MA200 (heat=None)'
-    print_metrics(m1)
-    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
-
-    # ── T-Simple+MA200+heat_cap (최종 채택) ──
-    print("\n" + "="*60)
-    print("  [2/2] T-Simple+MA200+heat_cap (최종 채택, heat_cap=0.10)")
-    print("="*60)
-    p2 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p2,
+    BASE = dict(
         top_n=5, adx_min=20,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
@@ -682,9 +692,38 @@ if __name__ == "__main__":
         portfolio_heat_cap=0.10, entry_mode='universe_only',
         use_macd_rsi_exit=False, require_52w_high=False,
     )
+
+    # ── 채택 파라미터 (비교 기준) ──
+    print("\n" + "="*60)
+    print("  [1/3] 채택 파라미터 (bear_action=none)")
+    print("="*60)
+    p0 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p0, **BASE, bear_action='none')
+    m0, ec0, sc = compute_metrics(p0, price_data)
+    m0['label'] = '채택 (bear_action=none)'
+    print_metrics(m0)
+    results.append({"label": m0['label'], "ec": ec0, "metrics": m0})
+
+    # ── AH1: MA200 이탈 즉시 전량 청산 ──
+    print("\n" + "="*60)
+    print("  [2/3] AH1: bear_action=sell_all (즉시 청산)")
+    print("="*60)
+    p1 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p1, **BASE, bear_action='sell_all')
+    m1, ec1, _ = compute_metrics(p1, price_data)
+    m1['label'] = 'AH1: sell_all (즉시)'
+    print_metrics(m1)
+    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
+
+    # ── AH2: MA200 아래 3일 연속 후 전량 청산 ──
+    print("\n" + "="*60)
+    print("  [3/3] AH2: bear_action=sell_delayed (3일 연속 후 청산)")
+    print("="*60)
+    p2 = PortfolioManager(CONFIG['initial_capital'])
+    run_dynamic_backtest(price_data, p2, **BASE, bear_action='sell_delayed', bear_sell_delay=3)
     m2, ec2, _ = compute_metrics(p2, price_data)
-    m2['label'] = 'T-Simple+MA200+heat=0.10 (최종)'
+    m2['label'] = 'AH2: sell_delayed (3일)'
     print_metrics(m2)
     results.append({"label": m2['label'], "ec": ec2, "metrics": m2})
 
-    plot_comparison(results, sc, title="T-Simple+MA200: heat_cap 적용 전후 비교 (8년 백테스트)")
+    plot_comparison(results, sc, title="AH 시리즈: 베어마켓 강제청산 (8년 백테스트)")

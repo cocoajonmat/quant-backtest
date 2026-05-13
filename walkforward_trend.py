@@ -543,10 +543,9 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AG 시리즈: OOS 구간 분할 검증 (채택 파라미터)")
-    print("  OOS-A: 2023-07-01 ~ 2023-12-31  (2023 하반기)")
-    print("  OOS-B: 2024-01-01 ~ 2024-12-31  (2024 전체)")
-    print("  OOS-C: 2025-01-01 ~ 2026-05-09  (2025~현재)")
+    print("  AH 시리즈: 베어마켓 강제청산 워크포워드 검증")
+    print("  IS : 2021-01-01 ~ 2023-06-30")
+    print("  OOS: 2023-07-01 ~ 2026-05-09")
     print("="*60)
 
     NDX100 = get_nasdaq100_tickers()
@@ -555,48 +554,35 @@ if __name__ == "__main__":
 
     BASE = SIMPLE_PARAMS
 
-    segments = [
-        ("OOS-A  2023H2", "2023-07-01", "2023-12-31"),
-        ("OOS-B  2024",   "2024-01-01", "2024-12-31"),
-        ("OOS-C  2025~",  "2025-01-01", "2026-05-09"),
-        ("OOS 전체",      "2023-07-01", "2026-05-09"),
+    # 변형 정의: (label, bear_action overrides)
+    variants = [
+        ("채택 (none)",       dict(bear_action='none')),
+        ("AH1 즉시청산",      dict(bear_action='sell_all')),
+        ("AH2 3일후청산",     dict(bear_action='sell_delayed', bear_sell_delay=3)),
+        ("AH3 5일후청산",     dict(bear_action='sell_delayed', bear_sell_delay=5)),
+        ("AH4 10일후청산",    dict(bear_action='sell_delayed', bear_sell_delay=10)),
     ]
 
-    print(f"\n  {'구간':<20} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
-    print("  " + "-"*70)
+    for seg_label, start, end in [("IS (2021~2023H1)", IS_START, IS_END),
+                                   ("OOS (2023H2~2026)", OOS_START, OOS_END)]:
+        print(f"\n{'='*75}")
+        print(f"  AH 시리즈 - {seg_label}")
+        print(f"{'='*75}")
+        print(f"  {'변형':<20} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
+        print("  " + "-"*70)
+        for label, overrides in variants:
+            r = _run_one_variant(price_data, label, overrides, start, end, base_params=BASE)
+            if r:
+                spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
+                print(f"  {label:<20} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
+                      f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
+        print("  " + "-"*70)
 
-    seg_results = []
-    for label, start, end in segments:
-        r = _run_one_variant(price_data, label, {}, start, end, base_params=BASE)
+    # OOS 에쿼티 커브 시각화
+    oos_results = []
+    for label, overrides in variants:
+        r = _run_one_variant(price_data, label, overrides, OOS_START, OOS_END, base_params=BASE)
         if r:
-            spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
-            print(f"  {label:<20} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
-                  f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
-            seg_results.append(r)
-    print("  " + "-"*70)
+            oos_results.append(r)
 
-    # 구간별 에쿼티 커브 시각화
-    colors = ['steelblue', 'darkorange', 'seagreen', 'crimson']
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle("AG 시리즈 — OOS 구간 분할 검증 (채택 파라미터)", fontsize=13, fontweight='bold')
-
-    for i, (r, (label, start, end)) in enumerate(zip(seg_results, segments)):
-        ax = axes[i // 2][i % 2]
-        norm  = r['ec']['equity'] / r['start_eq'] * 100
-        s_norm = r['spy_curve'] / r['start_eq'] * 100
-        ax.plot(r['ec'].index, norm, color=colors[i], lw=1.8, label='전략')
-        ax.plot(r['spy_curve'].index, s_norm, color='gray', lw=1.2, ls='--', label='SPY B&H')
-        spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
-        ax.set_title(
-            f"{label}  ({start[:7]} ~ {end[:7]})\n"
-            f"수익 {r['total_r']:+.1f}%  샤프 {r['sharpe']:.2f}  MDD {r['mdd']:.1f}%  SPY {spy_r:+.1f}%"
-        )
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0f}%"))
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%y-%m'))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha='right')
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.show()
+    plot_variant_comparison(oos_results, title="AH 시리즈 — OOS 에쿼티 커브 비교 (베어마켓 강제청산)")
