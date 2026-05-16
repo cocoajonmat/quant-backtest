@@ -246,7 +246,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          pyramid_mode=None,
                          pyramid_atr_mult=1.0,
                          pyramid_score_pct=0.20,
-                         pyramid_max=2):
+                         pyramid_max=2,
+                         stopout_cooldown_days=0):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -332,6 +333,8 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     bear_sell_streak = 0      # bear_action='sell_delayed'용: 연속 이탈일 수
     # pyramid_state: {ticker: {"count": 추가매수횟수, "next_atr_price": 다음ATR트리거가격, "entry_score": 진입시score}}
     pyramid_state = {}
+    # stopout_cooldown: {ticker: 재진입허용일} — 손절 후 N일 재진입 금지
+    stopout_cooldown = {}
 
     print(f"\n[동적 유니버스 / top_n={top_n} / ret12>{ret12_min*100:.0f}% / ADX>={adx_min} / momentum={momentum_mode}]")
     print(f"  백테스팅: {trading_days[0].date()} ~ {trading_days[-1].date()}")
@@ -440,6 +443,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         reentry_candidates[ticker] = date
                     else:
                         reentry_candidates.pop(ticker, None)
+                    # 손절 청산 시 쿨다운 등록
+                    if stopout_cooldown_days > 0 and reason in ('HARD_STOP', 'TRAIL_STOP'):
+                        stopout_cooldown[ticker] = date + timedelta(days=stopout_cooldown_days)
                     break
                 else:
                     portfolio.sell_partial(ticker, price_snapshot[ticker], ratio, reason, date)
@@ -497,6 +503,9 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                     continue
                 if portfolio.position_count() >= CONFIG['max_positions']:
                     break
+                # 손절 후 쿨다운 중인 종목 스킵
+                if ticker in stopout_cooldown and date < stopout_cooldown[ticker]:
+                    continue
                 if ticker not in price_data or date not in price_data[ticker].index:
                     continue
 
@@ -801,7 +810,7 @@ if __name__ == "__main__":
     results = []
 
     BASE = dict(
-        top_n=5, adx_min=20,
+        top_n=5, adx_min=15,
         momentum_mode='linreg', linreg_gate=0.15, linreg_window=90,
         ret12_min=0.20,
         bear_filter='block', spy_ma_period=200,
@@ -812,28 +821,26 @@ if __name__ == "__main__":
         use_macd_rsi_exit=False, require_52w_high=False,
     )
 
-    # ── 채택 파라미터 (비교 기준) ──
-    print("\n" + "="*60)
-    print("  [1/2] 채택 파라미터 (피라미딩 없음)")
-    print("="*60)
-    p0 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p0, **BASE, rebalance_days=5, pyramid_mode=None)
-    m0, ec0, sc = compute_metrics(p0, price_data)
-    m0['label'] = '채택 (피라미딩없음)'
-    print_metrics(m0)
-    results.append({"label": m0['label'], "ec": ec0, "metrics": m0})
+    # ── AL 시리즈: 손절 후 재진입 금지 기간 스윕 ──
+    AL_SWEEP = [
+        ('AL0 기준 (쿨다운없음)',  0),
+        ('AL1 쿨다운=10일',       10),
+        ('AL2 쿨다운=20일',       20),
+        ('AL3 쿨다운=30일',       30),
+    ]
 
-    # ── AK3: ATR AND score 피라미딩 ──
-    print("\n" + "="*60)
-    print("  [2/2] AK3: 피라미딩 (ATR AND score)")
-    print("="*60)
-    p1 = PortfolioManager(CONFIG['initial_capital'])
-    run_dynamic_backtest(price_data, p1, **BASE, rebalance_days=5,
-                         pyramid_mode='and', pyramid_atr_mult=1.0,
-                         pyramid_score_pct=0.20, pyramid_max=2)
-    m1, ec1, _ = compute_metrics(p1, price_data)
-    m1['label'] = 'AK3: ATR AND score'
-    print_metrics(m1)
-    results.append({"label": m1['label'], "ec": ec1, "metrics": m1})
+    sc = None
+    for i, (label, cd) in enumerate(AL_SWEEP):
+        print("\n" + "="*60)
+        print(f"  [{i+1}/{len(AL_SWEEP)}] {label}")
+        print("="*60)
+        p = PortfolioManager(CONFIG['initial_capital'])
+        run_dynamic_backtest(price_data, p, **BASE, rebalance_days=5, stopout_cooldown_days=cd)
+        m, ec, sc_ = compute_metrics(p, price_data)
+        m['label'] = label
+        print_metrics(m)
+        results.append({"label": m['label'], "ec": ec, "metrics": m})
+        if sc is None:
+            sc = sc_
 
-    plot_comparison(results, sc, title="AK 시리즈: 피라미딩 (8년 백테스트)")
+    plot_comparison(results, sc, title="AL 시리즈: 손절 후 재진입 금지 (8년 백테스트)")
