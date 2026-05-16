@@ -543,7 +543,7 @@ def plot_variant_comparison(oos_results, title="OOS 에쿼티 커브 비교"):
 
 if __name__ == "__main__":
     print("="*60)
-    print("  AK 시리즈: 피라미딩 워크포워드 검증")
+    print("  AO 시리즈: 개별 종목 최대 비중 상한 워크포워드 검증")
     print("  IS : 2021-01-01 ~ 2023-06-30")
     print("  OOS: 2023-07-01 ~ 2026-05-09")
     print("="*60)
@@ -552,32 +552,33 @@ if __name__ == "__main__":
     CONFIG['max_positions'] = 4
     price_data = load_data(NDX100, period_years=8)
 
-    # 채택 파라미터 (rebalance_days=5 포함)
-    BASE = {**SIMPLE_PARAMS, "rebalance_days": 5}
+    # 채택 파라미터 (rebalance_days=5, adx_min=15 포함)
+    BASE = {**SIMPLE_PARAMS, "rebalance_days": 5, "adx_min": 15}
 
-    # AK 시리즈: 피라미딩 방식 비교
-    # AK1: ATR 기반 (진입가 + 1ATR 상승 시 추가)
-    # AK2: linreg score 기반 (진입 score 대비 20% 상승 시 추가)
-    # AK3: ATR AND score 둘 다 충족 시 추가
+    # AO 시리즈: 개별 종목 최대 비중 상한 비교
+    # AO0: 기준 — 상한 없음 (position_size_cap=None)
+    # AO1: 개별 종목 최대 50% (포트폴리오 자산 대비)
+    # AO2: 개별 종목 최대 40%
+    # AO3: 개별 종목 최대 30%
     variants = [
-        ("채택 (피라미딩없음)",      dict(pyramid_mode=None)),
-        ("AK1: ATR (x1.0)",         dict(pyramid_mode='atr',   pyramid_atr_mult=1.0, pyramid_max=2)),
-        ("AK2: score (+20%)",        dict(pyramid_mode='score', pyramid_score_pct=0.20, pyramid_max=2)),
-        ("AK3: ATR AND score",       dict(pyramid_mode='and',   pyramid_atr_mult=1.0, pyramid_score_pct=0.20, pyramid_max=2)),
+        ("AO0 기준 (상한없음)",     dict(position_size_cap=None)),
+        ("AO1 종목당 최대 50%",     dict(position_size_cap=0.50)),
+        ("AO2 종목당 최대 40%",     dict(position_size_cap=0.40)),
+        ("AO3 종목당 최대 30%",     dict(position_size_cap=0.30)),
     ]
 
     for seg_label, start, end in [("IS (2021~2023H1)", IS_START, IS_END),
                                    ("OOS (2023H2~2026)", OOS_START, OOS_END)]:
         print(f"\n{'='*75}")
-        print(f"  AK 시리즈 - {seg_label}")
+        print(f"  AO 시리즈 - {seg_label}")
         print(f"{'='*75}")
-        print(f"  {'변형':<24} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
+        print(f"  {'변형':<26} {'수익':>8} {'SPY초과':>10} {'MDD':>8} {'샤프':>7}  SPY")
         print("  " + "-"*72)
         for label, overrides in variants:
             r = _run_one_variant(price_data, label, overrides, start, end, base_params=BASE)
             if r:
                 spy_r = (r['spy_curve'].iloc[-1] / r['start_eq'] - 1) * 100
-                print(f"  {label:<24} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
+                print(f"  {label:<26} {r['total_r']:>+7.1f}%  {r['spy_excess']:>+9.1f}%p"
                       f"  {r['mdd']:>7.1f}%  {r['sharpe']:>6.2f}  {spy_r:>+7.1f}%")
         print("  " + "-"*72)
 
@@ -588,4 +589,4 @@ if __name__ == "__main__":
         if r:
             oos_results.append(r)
 
-    plot_variant_comparison(oos_results, title="AK 시리즈 — OOS 에쿼티 커브 비교 (피라미딩)")
+    plot_variant_comparison(oos_results, title="AO 시리즈 — OOS 에쿼티 커브 비교 (개별 종목 최대 비중)")

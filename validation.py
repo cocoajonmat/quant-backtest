@@ -34,7 +34,7 @@ plt.rcParams['axes.unicode_minus'] = False
 # ─────────────────────────────────────────────
 PARAMS = dict(
     top_n=5,
-    adx_min=20,
+    adx_min=15,           # AM 시리즈 채택
     momentum_mode='linreg',
     linreg_gate=0.15,
     linreg_window=90,
@@ -55,6 +55,7 @@ PARAMS = dict(
     sector_max=None,
     corr_max=None,
     require_52w_high=False,
+    rebalance_days=5,     # AI 시리즈 채택
 )
 
 
@@ -338,6 +339,103 @@ def analyze_positions(portfolio, ec, label=""):
 
 
 # ─────────────────────────────────────────────
+# 검증 4: 몬테카를로 시뮬레이션
+# ─────────────────────────────────────────────
+def run_monte_carlo(ec, n_sims=2000, seed=42):
+    """
+    일별 포트폴리오 수익률을 랜덤 셔플해 샤프·MDD·총수익 분포 확인.
+    행운의 거래 순서 의존도 파악 — 분포 하단(5th pct)이 실전 최악 기대치.
+    """
+    print(f"\n{'='*65}")
+    print(f"  [검증4] 몬테카를로 시뮬레이션 (n={n_sims:,})")
+    print(f"{'='*65}")
+
+    daily_ret = ec['equity'].pct_change().dropna().values
+    n_days = len(daily_ret)
+    initial = 10_000.0
+
+    rng = np.random.default_rng(seed)
+    sharpes, mdds, total_rets = [], [], []
+
+    for _ in range(n_sims):
+        shuffled = rng.permutation(daily_ret)
+        equity = initial * np.cumprod(1 + shuffled)
+        equity = np.concatenate([[initial], equity])
+
+        total_r  = (equity[-1] / initial - 1) * 100
+        sharpe   = (shuffled.mean() * 252 - 0.04) / (shuffled.std() * np.sqrt(252) + 1e-9)
+        roll_max = np.maximum.accumulate(equity)
+        mdd      = ((equity - roll_max) / roll_max).min() * 100
+
+        sharpes.append(sharpe)
+        mdds.append(mdd)
+        total_rets.append(total_r)
+
+    sharpes    = np.array(sharpes)
+    mdds       = np.array(mdds)
+    total_rets = np.array(total_rets)
+
+    # 실제 값
+    real_total  = (ec['equity'].iloc[-1] / ec['equity'].iloc[0] - 1) * 100
+    real_sharpe = (daily_ret.mean() * 252 - 0.04) / (daily_ret.std() * np.sqrt(252) + 1e-9)
+    roll_max    = ec['equity'].cummax()
+    real_mdd    = ((ec['equity'] - roll_max) / roll_max).min() * 100
+
+    print(f"  거래일 수:            {n_days}일")
+    print(f"\n  {'지표':<14} {'실제값':>9} {'평균':>9} {'5th pct':>9} {'중앙값':>9} {'95th pct':>10}")
+    print(f"  {'-'*60}")
+
+    for name, real, arr in [
+        ("총수익(%)",  real_total,  total_rets),
+        ("샤프",       real_sharpe, sharpes),
+        ("MDD(%)",     real_mdd,    mdds),
+    ]:
+        p5  = np.percentile(arr, 5)
+        p50 = np.percentile(arr, 50)
+        p95 = np.percentile(arr, 95)
+        avg = arr.mean()
+        print(f"  {name:<14} {real:>+8.1f}  {avg:>+8.1f}  {p5:>+8.1f}  {p50:>+8.1f}  {p95:>+9.1f}")
+
+    # 실제값이 분포 몇 번째 퍼센타일인지
+    sharpe_pct = (sharpes < real_sharpe).mean() * 100
+    mdd_pct    = (mdds    > real_mdd   ).mean() * 100
+    ret_pct    = (total_rets < real_total).mean() * 100
+
+    print(f"\n  실제 결과의 분포 위치 (운 의존도 해석)")
+    print(f"  샤프:   전체 시뮬레이션의 상위 {100-sharpe_pct:.0f}th 퍼센타일")
+    print(f"  MDD:    전체 시뮬레이션의 상위 {100-mdd_pct:.0f}th 퍼센타일 (낮을수록 유리)")
+    print(f"  총수익: 전체 시뮬레이션의 상위 {100-ret_pct:.0f}th 퍼센타일")
+
+    if sharpe_pct > 80:
+        print("\n  [주의] 실제 샤프가 상위 20% — 운 좋은 순서에 의존할 가능성 있음")
+    elif sharpe_pct > 60:
+        print("\n  [보통] 실제 샤프가 상위 40% — 일부 순서 의존성 존재")
+    else:
+        print("\n  [양호] 실제 샤프가 중간값 이하 — 거래 순서 의존도 낮음, 전략 구조적 강점 확인")
+
+    # 시각화
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    fig.suptitle(f"몬테카를로 시뮬레이션 (n={n_sims:,}) — 일별 수익률 순서 셔플", fontsize=12, fontweight='bold')
+
+    for ax, arr, real_val, xlabel in [
+        (axes[0], total_rets, real_total,  "총수익 (%)"),
+        (axes[1], sharpes,    real_sharpe, "샤프 비율"),
+        (axes[2], mdds,       real_mdd,    "MDD (%)"),
+    ]:
+        ax.hist(arr, bins=60, color='steelblue', alpha=0.7, edgecolor='none')
+        ax.axvline(real_val, color='crimson', lw=2, label=f'실제 {real_val:.2f}')
+        ax.axvline(np.percentile(arr, 5),  color='orange', lw=1.5, ls='--', label=f'5th {np.percentile(arr,5):.2f}')
+        ax.axvline(np.percentile(arr, 95), color='green',  lw=1.5, ls='--', label=f'95th {np.percentile(arr,95):.2f}')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("빈도")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# ─────────────────────────────────────────────
 # 메인
 # ─────────────────────────────────────────────
 if __name__ == '__main__':
@@ -357,5 +455,9 @@ if __name__ == '__main__':
 
     # ── 검증 2: 롤링 워크포워드 ──
     rolling_results = run_rolling_walkforward(price_data)
+
+    # ── 검증 4: 몬테카를로 시뮬레이션 ──
+    if m_full:
+        run_monte_carlo(ec_full, n_sims=2000)
 
     print("\n\n검증 완료.")

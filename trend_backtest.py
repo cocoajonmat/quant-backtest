@@ -247,7 +247,10 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                          pyramid_atr_mult=1.0,
                          pyramid_score_pct=0.20,
                          pyramid_max=2,
-                         stopout_cooldown_days=0):
+                         stopout_cooldown_days=0,
+                         pullback_mode=None,
+                         pullback_pct=0.03,
+                         position_size_cap=None):
     """
     get_dynamic_universe를 유니버스 공급원으로 사용하는 백테스트.
     backtest.run_backtest의 get_universe 호출 부분을 monkey-patch 방식으로 교체.
@@ -316,6 +319,17 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
     pyramid_atr_mult: ATR 기반 트리거 배수 (기본 1.0)
     pyramid_score_pct: score 기반 트리거 상승률 (기본 0.20 = 20%)
     pyramid_max: 추가 매수 최대 횟수 (기본 2)
+
+    pullback_mode:
+      None       — 기존: 리밸런싱일에 유니버스 종목이면 즉시 진입
+      'ma10'     — 현재가가 MA10 × (1 + pullback_pct) 이하일 때만 진입 허용 (MA10 눌림목)
+      'recent_low' — 현재가가 최근 5일 저가의 (1 + pullback_pct) 이하일 때만 진입 허용
+    pullback_pct: pullback_mode 기준 허용 여유 (기본 0.03 = 3%)
+
+    position_size_cap:
+      None  — 제한 없음 (기존): ATR 사이징 결과 그대로 사용
+      float — 개별 종목 최대 비중 상한 (예: 0.40 = 포트폴리오 자산의 40%). ATR 사이징
+              결과가 이 값을 초과하면 상한으로 클리핑.
     """
     from datetime import timedelta
 
@@ -550,6 +564,18 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                     if bt.calc_adx(df, idx) < adx_threshold:
                         continue
 
+                # 풀백 진입 필터 (AN 시리즈)
+                if pullback_mode is not None and idx >= 15:
+                    current_close = df['Close'].iloc[idx]
+                    if pullback_mode == 'ma10':
+                        ma10 = df['Close'].iloc[idx - 10:idx].mean()
+                        if current_close > ma10 * (1 + pullback_pct):
+                            continue
+                    elif pullback_mode == 'recent_low':
+                        low_5d = df['Low'].iloc[max(0, idx - 4):idx + 1].min()
+                        if current_close > low_5d * (1 + pullback_pct):
+                            continue
+
                 entry_price = price_snapshot.get(ticker)
                 if entry_price is None:
                     continue
@@ -576,6 +602,15 @@ def run_dynamic_backtest(price_data, portfolio, top_n=8, adx_min=20,
                         current_eq = portfolio.total_equity(price_snapshot)
                         cap_override = (current_eq * effective_atr_risk) / stop_dist_pct
                         cap_override = max(200, min(cap_override, current_eq * atr_position_cap))
+
+                # 개별 종목 최대 비중 상한 (AO 시리즈)
+                if position_size_cap is not None:
+                    current_eq = portfolio.total_equity(price_snapshot)
+                    max_cap = current_eq * position_size_cap
+                    if cap_override is not None:
+                        cap_override = min(cap_override, max_cap)
+                    else:
+                        cap_override = max_cap
 
                 # 섹터 집중도 제한 (N1)
                 if sector_max is not None:

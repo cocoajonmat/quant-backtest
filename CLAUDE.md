@@ -33,10 +33,10 @@ python trend_backtest.py  # 일반 추세추종
 **일반 추세추종 (T-Simple+MA200+heat_cap+rebalance_days=5+adx=15 채택, 워크포워드 기준)**
 - OOS (2023~2026): +634.2% / MDD -31.2% / 샤프 1.99 / SPY 초과 +563.5%p
 - NDX100 동적 top5 / linreg(90일, gate=0.15) / ret12>20% / MA200 block / ATR 4% / max_pos=4 / heat_cap=0.10 / entry=universe_only / rebalance_days=5 / adx_min=15
-- V/W/X/Y/AA/AB/AC/AD/AE/AF/AG/AH/AI/AK/AM 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 / linreg_gate / linreg_window / atr_risk_pct / max_positions / OOS구간분할 / 베어마켓강제청산 / 주별리밸런싱 / 피라미딩 / ADX임계값 — AI2(5일) 채택, AM adx=15 채택, AK 전부 기각(8년 풀백 열위)
-- 종합 검증 완료 (validation.py): 수수료 반영 확인 / 서바이버십 바이어스 낮음 / MDD 26회·평균50일 / 롤링WF 3/5 SPY 초과 / 평균 포지션 1.74개
+- V/W/X/Y/AA/AB/AC/AD/AE/AF/AG/AH/AI/AK/AM/AL/AN/AO/AP 시리즈: ec_cap / atr_trail / top_n / 재진입 / ret12_min / exit방식 / linreg_gate / linreg_window / atr_risk_pct / max_positions / OOS구간분할 / 베어마켓강제청산 / 주별리밸런싱 / 피라미딩 / ADX임계값 / 손절쿨다운 / 풀백진입 / 비중상한 / 몬테카를로 — 전부 기각(AN/AO/AP), AI·AM만 채택
+- 종합 검증 완료 (validation.py): 수수료 반영 확인 / 서바이버십 바이어스 낮음 / MDD 22회·평균60일 / 롤링WF 4/5 SPY 초과 / 평균 포지션 1.83개 / 몬테카를로 MDD 최악 -48%
 
-**다음 작업 (일반 추세추종):** AN(풀백진입) → AO(개별종목최대비중) → AP(몬테카를로)
+**다음 작업 (일반 추세추종):** 파라미터 최적화 사이클 종료 — 실전 운용 또는 슈퍼사이클 동적 유니버스 전환 검토
 **다음 작업 (슈퍼사이클):** 동적 유니버스 갱신 로직
 
 ## 데이터 관리 규칙 (중요)

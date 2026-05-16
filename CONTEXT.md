@@ -31,4 +31,5 @@ AI 반도체 투자 전략 PDF(Gap and Go, VCP, 3:3:4 피라미딩)를 분석하
 - 채택 전략: NDX100 동적 top5 / linreg(window=90, gate=0.15) / ret12>20% / bear=block MA200 / ATR 4% / max_positions=4 / heat_cap=0.10 / entry=universe_only / rebalance_days=5 / adx_min=15
 - 워크포워드 OOS (2023~2026): +634.2% / MDD -31.2% / 샤프 1.99 / SPY 초과 +563.5%p
 - 종합 검증 완료 (2026-05-13): 롤링WF 3/5 SPY 초과, 추세 시장 특화 전략 확인
-- **다음 실험: AN(풀백진입) → AO(개별종목최대비중) → AP(몬테카를로)** → 상세: `CONTEXT_trend.md`
+- 종합 검증 완료 (2026-05-16): AN/AO/AP 전부 기각, 롤링WF 4/5 SPY 초과(adx=15 채택 후 개선), 몬테카를로 MDD 최악 -48% 확인
+- **다음 실험: 미정 — 파라미터 최적화 사이클 종료. 실전 운용 또는 슈퍼사이클 동적 유니버스 검토** → 상세: `CONTEXT_trend.md`
